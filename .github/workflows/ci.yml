@@ -86,14 +86,16 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
+            # No `!` exclusions: paths-filter ORs separately-compiled
+            # patterns, so a bare negation matches every file it does not
+            # exclude (issue #15). `.github/dependabot.yml` classifies as
+            # fixtures and runs `test` only, which no-ops without Go code.
             fixtures:
               - 'testdata/**'
               - '**/*.json'
               - '**/*.yaml'
               - '**/*.yml'
               - '**/*.example.*'
-              - '!.github/**'
-              - '!.golangci.yml'
             shell:
               - '**/*.sh'
             docker:
