@@ -1,0 +1,29 @@
+# Org lint set for eshu-scanner-worker (epic #1, child #3).
+#
+# Pinned to golangci-lint v2.12.2, the same version Eshu uses
+# (see .github/workflows/ci.yml GOLANGCI_LINT_VERSION).
+#
+# Enabled set: govet, staticcheck, ineffassign, unused, errcheck;
+# formatter gofumpt. (`golint` itself is deprecated; this set is its modern
+# form. `gosimple` is not listed: in golangci-lint v2 it is not a standalone
+# enabler and its checks run under `staticcheck`.)
+#
+# No hidden debt: lint runs on the whole repo, no --new-from-rev, no baseline
+# files. Zero exclusions today (zero Go files). Any exclusion added later
+# needs a reason and a linked open issue on the same lines, and the PR adding
+# it states the exclusion count.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - errcheck
+
+formatters:
+  default: none
+  enable:
+    - gofumpt
