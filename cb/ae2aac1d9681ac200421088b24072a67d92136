@@ -1,0 +1,14 @@
+CONTRIBUTING.md
+  h_78a442cba0b3e6 22-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cbae2aac1d9681ac200421088b24072a67d92136",
+  "prompts": {},
+  "humans": {
+    "h_78a442cba0b3e6": {
+      "author": "Allen Sanabria <asanabria6910@gmail.com>"
+    }
+  }
+}
