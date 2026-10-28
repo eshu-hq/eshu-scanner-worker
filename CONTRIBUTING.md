@@ -19,3 +19,6 @@ Two rules hold for every change:
   starts at the first measured baseline and ratchets to 90%.
 - No Go file may exceed 500 lines (`ci-lint` and the `lint` lane enforce it
   with a plain `wc -l` step).
+
+Docs-only PRs (Markdown, `LICENSE`) run no lane; `ci-complete` reports
+success and the PR stays mergeable.
