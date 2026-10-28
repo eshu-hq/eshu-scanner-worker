@@ -1,0 +1,17 @@
+# Dependabot (epic #1, child #7): gomod + github-actions, weekly, grouped.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      all:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      all:
+        patterns: ['*']
