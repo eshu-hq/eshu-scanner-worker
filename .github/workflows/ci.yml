@@ -149,9 +149,16 @@ jobs:
         if: hashFiles('go.mod') != ''
         run: |
           cp go.mod /tmp/go.mod.before
-          cp go.sum /tmp/go.sum.before 2>/dev/null || true
+          if [ -f go.sum ]; then cp go.sum /tmp/go.sum.before; fi
           go mod tidy
-          diff /tmp/go.mod.before go.mod && diff /tmp/go.sum.before go.sum
+          diff /tmp/go.mod.before go.mod
+          # A dependency-free module has no go.sum on either side; that is
+          # clean, not a diff failure (issue #6 seed proof surfaced exit 2).
+          if [ -f /tmp/go.sum.before ] || [ -f go.sum ]; then
+            diff /tmp/go.sum.before go.sum
+          else
+            echo "No go.sum on either side; tidy is clean."
+          fi
       - name: 500-line cap on .go files (plain wc -l, no plugin)
         run: |
           over=0

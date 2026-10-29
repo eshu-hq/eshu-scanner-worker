@@ -28,9 +28,14 @@ ci-lint:
 	fi
 	@if [ -f go.mod ]; then \
 		cp go.mod /tmp/eshu-scanner-worker.go.mod.before; \
-		cp go.sum /tmp/eshu-scanner-worker.go.sum.before 2>/dev/null || true; \
+		if [ -f go.sum ]; then cp go.sum /tmp/eshu-scanner-worker.go.sum.before; fi; \
 		$(GO) mod tidy; \
-		diff /tmp/eshu-scanner-worker.go.mod.before go.mod && diff /tmp/eshu-scanner-worker.go.sum.before go.sum; \
+		diff /tmp/eshu-scanner-worker.go.mod.before go.mod; \
+		if [ -f /tmp/eshu-scanner-worker.go.sum.before ] || [ -f go.sum ]; then \
+			diff /tmp/eshu-scanner-worker.go.sum.before go.sum; \
+		else \
+			echo "ci-lint: no go.sum on either side; tidy is clean."; \
+		fi; \
 	else \
 		echo "ci-lint: no go.mod; skipping tidy check."; \
 	fi
