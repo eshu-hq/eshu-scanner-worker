@@ -16,7 +16,10 @@ make ci   # lint + test + race, same commands CI runs
 Two rules hold for every change:
 
 - Coverage only rises: the `race` job fails below `COVERAGE_FLOOR`, which
-  starts at the first measured baseline and ratchets to 90%.
+  sits at the highest measured baseline and ratchets to 90%. First
+  measured baseline is 67.4% (analyzer lanes + OS parsers, PR #20); raise
+  the floor in `Makefile` and `.github/workflows/ci.yml` together as
+  tests land, never lower it.
 - No Go file may exceed 500 lines (`ci-lint` and the `lint` lane enforce it
   with a plain `wc -l` step).
 

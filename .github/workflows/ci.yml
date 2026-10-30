@@ -49,10 +49,11 @@ concurrency:
 env:
   GO_VERSION: '1.26'
   GOLANGCI_LINT_VERSION: v2.12.2
-  # Child issue #5. Starts at 0: no baseline is measurable until the first Go
-  # module lands (zero Go files today). Set to the first measured baseline
-  # then, ratchet up as tests land; the epic does not close below 90.
-  COVERAGE_FLOOR: 0
+  # Child issue #5. First measured baseline: 67.4% at the analyzer-lanes +
+  # OS parser landing (PR #20). The floor sits at the highest measured
+  # baseline and may only rise; ratchet it up as tests land. A hard 90
+  # today would red the build (67.4 < 90); the epic does not close below 90.
+  COVERAGE_FLOOR: 67.4
 
 jobs:
   changes:
