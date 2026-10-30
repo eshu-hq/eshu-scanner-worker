@@ -4,7 +4,7 @@
 
 GO ?= go
 GOLANGCI_LINT_VERSION ?= v2.12.2
-COVERAGE_FLOOR ?= 0
+COVERAGE_FLOOR ?= 67.4
 
 .PHONY: ci ci-lint ci-test ci-race help
 
@@ -58,5 +58,9 @@ ci-race:
 		echo "ci-race: no Go module or sources; nothing to race."; \
 	else \
 		$(GO) test ./... -race -count=1 -covermode=atomic -coverprofile=coverage.out && \
-		$(GO) tool cover -func=coverage.out; \
+		$(GO) tool cover -func=coverage.out && \
+		total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$3}' | tr -d '%'); \
+		echo "Total coverage: $${total}% (floor: $(COVERAGE_FLOOR)%)"; \
+		awk -v t="$$total" -v f="$(COVERAGE_FLOOR)" \
+			'BEGIN { if (t + 0 < f + 0) { printf "coverage %.1f%% below floor %.1f%%\n", t, f; exit 1 } }'; \
 	fi
