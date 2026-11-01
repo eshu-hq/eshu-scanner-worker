@@ -18,7 +18,7 @@ Two rules hold for every change:
 - Coverage only rises: the `race` job fails below `COVERAGE_FLOOR`, which
   sits at the highest measured baseline and ratchets to 90%. First
   measured baseline was 67.4% (analyzer lanes + OS parsers, PR #20); it is
-  now 95.7% after the coverage-90 tests. Raise
+  now 96.8% after the coverage-90 tests. Raise
   the floor in `Makefile` and `.github/workflows/ci.yml` together as
   tests land, never lower it.
 - No Go file may exceed 500 lines (`ci-lint` and the `lint` lane enforce it
