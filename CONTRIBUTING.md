@@ -13,6 +13,13 @@ Run the local mirror before pushing:
 make ci   # lint + test + race, same commands CI runs
 ```
 
+`scripts/scanner-worker-seed-matrix.sh` is the local proof that those lanes
+catch what they claim to: it plants a seeded vet error, lint finding,
+unformatted file, data race, `go.mod` drift, 501-line file, and an unreachable
+coverage floor, asserts each lane turns red and names the seed, removes the
+seed, and asserts green again. It is a local runner, not a CI gate, and it
+leaves the tree as it found it.
+
 Two rules hold for every change:
 
 - Coverage only rises: the `race` job fails below `COVERAGE_FLOOR`, which
