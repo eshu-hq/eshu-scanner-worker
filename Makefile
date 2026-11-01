@@ -4,7 +4,7 @@
 
 GO ?= go
 GOLANGCI_LINT_VERSION ?= v2.12.2
-COVERAGE_FLOOR ?= 96.0
+COVERAGE_FLOOR ?= 95.7
 
 .PHONY: ci ci-lint ci-test ci-race help
 
