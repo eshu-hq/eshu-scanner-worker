@@ -104,11 +104,11 @@ jobs:
       module: scanner-worker
       go-version-file: go.mod
       # Child issue #5. First measured baseline: 67.4% at the analyzer-lanes
-      # + OS parser landing (PR #20); raised to 95.7% by the coverage-90
+      # + OS parser landing (PR #20); raised to 96.8% by the coverage-90
       # tests. The floor sits at the highest measured baseline and may only
       # rise; the epic does not close below 90.
       # Pinned equal to the Makefile by TestCoverageFloorParity.
-      coverage-floor: 95.7
+      coverage-floor: 96.8
       golangci-lint-version: v2.12.2
       govulncheck-version: v1.9.0
       gosec-version: v2.30.0
