@@ -114,3 +114,5 @@ func TestCoverageFloorParity(t *testing.T) {
 		t.Errorf("ci.yml coverage-floor %s != Makefile COVERAGE_FLOOR %s", ciFloor[1], makeFloor[1])
 	}
 }
+
+// fork-pr lane proof, do not merge
