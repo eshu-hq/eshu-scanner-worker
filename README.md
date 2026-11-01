@@ -16,3 +16,5 @@ claim-client and public-contract gates land; see [INTERIM.md](INTERIM.md).
 ```sh
 make ci   # lint + test + race, same commands CI runs
 ```
+
+<!-- lane-selection proof, do not merge -->
