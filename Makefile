@@ -26,7 +26,7 @@ ci-lint:
 	else \
 		echo "ci-lint: no go.mod; skipping golangci-lint."; \
 	fi
-	@if [ -f go.mod ]; then \
+	@set -e; if [ -f go.mod ]; then \
 		cp go.mod /tmp/eshu-scanner-worker.go.mod.before; \
 		if [ -f go.sum ]; then cp go.sum /tmp/eshu-scanner-worker.go.sum.before; fi; \
 		$(GO) mod tidy; \
