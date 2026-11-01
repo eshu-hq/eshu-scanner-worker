@@ -1,34 +1,33 @@
 # Path-aware CI gates for eshu-scanner-worker (epic eshu-hq/eshu-scanner-worker#1).
 #
-# Required lanes with stable job names. `ci-complete` is the ONLY context the
-# `main` ruleset requires: it fails if a needed lane failed and succeeds when
-# lanes were legitimately skipped (docs-only PRs).
+# Thin caller (issue #11): a `changes` job classifies paths, a `lanes` job
+# runs the lane bodies inside the pinned eshu-hq/.github reusable
+# (go-collector-ci.yml at an exact commit SHA, never a tag), and
+# `ci-complete` aggregates. `ci-complete` is the ONLY context the `main`
+# ruleset requires; it fails if a needed lane failed and succeeds when lanes
+# were legitimately skipped (docs-only PRs). The effective lane set inside
+# `lanes` is lint, test, race, shell, image, govulncheck, gosec, actionlint.
+# Each run-* gate below is the exact expression the retired inline lane used.
 #
-#   lint        go vet, golangci-lint, format check, go mod tidy diff,
-#               500-line file cap. Runs on Go sources, module files, or
-#               workflow changes.
-#   test        go build + go test. Runs on Go sources, module files,
-#               workflow changes, or files tests read (fixtures/config).
-#   race        go test -race (whole module) + coverage artifact and floor.
-#               Runs on Go sources, module files, or workflow changes only;
-#               a fixture-only PR never pays for it.
-#   shell       shellcheck over **/*.sh. Runs only on shell changes.
-#   govulncheck required through ci-complete on go.mod/go.sum changes;
-#               weekly on schedule (opens/updates an issue on findings).
-#   gosec       SARIF to the Security tab. ADVISORY until its false-positive
-#               rate here is measured (child issue #7); findings are triaged
-#               in the open, never blanket-excluded.
-#   image       docker build (no push). Runs only if a Dockerfile lands.
-#   actionlint  runs when workflows change (a workflow change must also prove
-#               lint/test/race still work) and on every push to main.
+# Two hard rules (epic #1): no static gates, and no hidden debt (lint runs
+# on the whole repo, no baseline files). The 500-line cap on .go files is
+# enforced by the reusable lint lane.
 #
-# Two hard rules (epic #1): no static gates — no committed counts, lists, or
-# parity files; the single exception is the 500-line cap on .go files via a
-# plain wc -l step (no custom plugin). No hidden debt: lint runs on the whole
-# repo, no --new-from-rev, no baseline files.
+# Accepted deltas of the move (same as eshu-collector-prometheus-mimir #15):
+# - gosec SARIF no longer uploads to the Security tab (the reusable runs on
+#   a read-only token for fork safety); findings ride the run artifact, and
+#   scheduled findings fail the lane loud.
+# - Scheduled govulncheck/gosec no longer open or update a tracking issue
+#   (no reusable hook yet); triage rides the run page.
+# - There is no boundary lane: no boundary-command is set, so the reusable
+#   skips it.
+# - Tool pins follow the reusable's org pins: govulncheck v1.9.0, gosec
+#   v2.30.0 (this repo previously floated), actionlint 1.7.12 (was 1.7.7).
+# - Inner lane names now appear as `lanes / <lane>`; only ci-complete is
+#   required, so no required context changes.
 #
 # Fork safety: PR lanes use contents: read, need no secrets, pin every action
-# by SHA, cancel superseded runs per PR, and set job timeouts.
+# by SHA, and cancel superseded runs per PR.
 name: ci
 
 on:
@@ -46,19 +45,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-env:
-  GO_VERSION: '1.26'
-  GOLANGCI_LINT_VERSION: v2.12.2
-  # Child issue #5. First measured baseline: 67.4% at the analyzer-lanes +
-  # OS parser landing (PR #20). The floor sits at the highest measured
-  # baseline and may only rise; ratchet it up as tests land. A hard 90
-  # today would red the build (67.4 < 90); the epic does not close below 90.
-  COVERAGE_FLOOR: 67.4
-
 jobs:
   changes:
     name: changes
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -105,383 +94,59 @@ jobs:
             workflows:
               - '.github/workflows/**'
 
-  lint:
-    name: lint
+  lanes:
+    name: lanes
     needs: [changes]
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        (needs.changes.outputs.go == 'true' ||
-         needs.changes.outputs.go_module == 'true' ||
-         needs.changes.outputs.workflows == 'true'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for Go sources
-        id: probe
-        run: |
-          if [ -f go.mod ] || [ -n "$(git ls-files '*.go' | head -n 1)" ]; then
-            echo "has_go=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_go=false" >> "$GITHUB_OUTPUT"
-            echo "No Go module or sources; lint steps below no-op." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Setup Go
-        if: steps.probe.outputs.has_go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: go vet
-        if: steps.probe.outputs.has_go == 'true'
-        run: go vet ./...
-      - name: golangci-lint
-        if: steps.probe.outputs.has_go == 'true'
-        run: |
-          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}"
-          "$(go env GOPATH)/bin/golangci-lint" run ./...
-      - name: Format check (golangci-lint fmt --diff, gofumpt)
-        if: steps.probe.outputs.has_go == 'true'
-        run: '"$(go env GOPATH)/bin/golangci-lint" fmt --diff ./...'
-      - name: go mod tidy diff
-        if: hashFiles('go.mod') != ''
-        run: |
-          cp go.mod /tmp/go.mod.before
-          if [ -f go.sum ]; then cp go.sum /tmp/go.sum.before; fi
-          go mod tidy
-          diff /tmp/go.mod.before go.mod
-          # A dependency-free module has no go.sum on either side; that is
-          # clean, not a diff failure (issue #6 seed proof surfaced exit 2).
-          if [ -f /tmp/go.sum.before ] || [ -f go.sum ]; then
-            diff /tmp/go.sum.before go.sum
-          else
-            echo "No go.sum on either side; tidy is clean."
-          fi
-      - name: 500-line cap on .go files (plain wc -l, no plugin)
-        run: |
-          over=0
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            n=$(wc -l < "$f")
-            if [ "$n" -gt 500 ]; then
-              echo "::error file=$f::over the 500-line cap ($n lines)"
-              over=1
-            fi
-          done <<EOF
-          $(git ls-files '*.go' ':!:vendor/*')
-          EOF
-          if [ "$over" -eq 0 ]; then
-            echo "500-line cap: no over-cap .go files." >> "$GITHUB_STEP_SUMMARY"
-          else
-            exit 1
-          fi
-
-  test:
-    name: test
-    needs: [changes]
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        (needs.changes.outputs.go == 'true' ||
-         needs.changes.outputs.go_module == 'true' ||
-         needs.changes.outputs.fixtures == 'true' ||
-         needs.changes.outputs.workflows == 'true'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for Go sources
-        id: probe
-        run: |
-          if [ -f go.mod ] || [ -n "$(git ls-files '*.go' | head -n 1)" ]; then
-            echo "has_go=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_go=false" >> "$GITHUB_OUTPUT"
-            echo "No Go module or sources; nothing to build or test." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Setup Go
-        if: steps.probe.outputs.has_go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: go build
-        if: steps.probe.outputs.has_go == 'true'
-        run: go build ./...
-      - name: go test
-        if: steps.probe.outputs.has_go == 'true'
-        run: go test ./... -count=1
-
-  race:
-    name: race
-    needs: [changes]
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        (needs.changes.outputs.go == 'true' ||
-         needs.changes.outputs.go_module == 'true' ||
-         needs.changes.outputs.workflows == 'true'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for Go sources
-        id: probe
-        run: |
-          if [ -f go.mod ] || [ -n "$(git ls-files '*.go' | head -n 1)" ]; then
-            echo "has_go=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_go=false" >> "$GITHUB_OUTPUT"
-            echo "No Go module or sources; nothing to race." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Setup Go
-        if: steps.probe.outputs.has_go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: go test -race with coverage
-        if: steps.probe.outputs.has_go == 'true'
-        run: go test ./... -race -count=1 -covermode=atomic -coverprofile=coverage.out
-      - name: Coverage totals and floor
-        if: steps.probe.outputs.has_go == 'true'
-        run: |
-          go tool cover -func=coverage.out | tee coverfunc.txt >> "$GITHUB_STEP_SUMMARY"
-          total=$(awk '/^total:/ {print $3}' coverfunc.txt | tr -d '%')
-          echo "Total coverage: ${total}% (floor: ${{ env.COVERAGE_FLOOR }}%)" >> "$GITHUB_STEP_SUMMARY"
-          awk -v t="$total" -v f="${{ env.COVERAGE_FLOOR }}" \
-            'BEGIN { if (t + 0 < f + 0) { printf "coverage %.1f%% below floor %.1f%%\n", t, f; exit 1 } }'
-      - name: Upload coverprofile
-        if: steps.probe.outputs.has_go == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
-        with:
-          name: coverage-${{ github.sha }}
-          path: coverage.out
-          retention-days: 14
-
-  shell:
-    name: shell
-    needs: [changes]
-    if: >-
-      (github.event_name == 'pull_request' || github.event_name == 'push') &&
-      needs.changes.outputs.shell == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: shellcheck over **/*.sh
-        run: |
-          files=$(git ls-files '*.sh')
-          if [ -z "$files" ]; then
-            echo "No shell scripts; nothing to check."
-            exit 0
-          fi
-          # shellcheck disable=SC2086
-          shellcheck -S warning $files
-
-  govulncheck:
-    name: govulncheck
-    needs: [changes]
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        needs.changes.outputs.go_module == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for a Go module
-        id: probe
-        run: |
-          if [ -f go.mod ]; then
-            echo "has_mod=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_mod=false" >> "$GITHUB_OUTPUT"
-            echo "No go.mod; nothing to scan." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Setup Go
-        if: steps.probe.outputs.has_mod == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: govulncheck
-        id: scan
-        if: steps.probe.outputs.has_mod == 'true'
-        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # golang/govulncheck-action@v1
-        with:
-          repo-checkout: false
-          work-dir: .
-      - name: Open or update an issue on weekly findings
-        if: github.event_name == 'schedule' && failure() && steps.probe.outputs.has_mod == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          body="Weekly govulncheck on \`main\` (\`${{ github.sha }}\`) reported findings. See the [failed run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
-          existing=$(gh issue list --repo "${{ github.repository }}" --search "govulncheck weekly findings in:title" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment --repo "${{ github.repository }}" "$existing" --body "$body"
-          else
-            gh issue create --repo "${{ github.repository }}" --label enhancement \
-              --title "govulncheck weekly findings" --body "$body"$'\n\nPart of #1.'
-          fi
-
-  gosec:
-    name: gosec
-    needs: [changes]
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        (needs.changes.outputs.go == 'true' ||
-         needs.changes.outputs.go_module == 'true'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for Go sources
-        id: probe
-        run: |
-          if [ -f go.mod ] || [ -n "$(git ls-files '*.go' | head -n 1)" ]; then
-            echo "has_go=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_go=false" >> "$GITHUB_OUTPUT"
-            echo "No Go module or sources; nothing to scan." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Setup Go
-        if: steps.probe.outputs.has_go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      # Advisory until the false-positive rate here is measured (child #7):
-      # findings warn in the log but do not fail the lane. Findings are
-      # triaged in the open, never blanket-excluded.
-      - name: gosec scan
-        id: scan
-        if: steps.probe.outputs.has_go == 'true'
-        continue-on-error: true
-        uses: securego/gosec@5a4843bfdcfea7a087b5991f975b8c84d12f60e0 # securego/gosec@master
-        with:
-          args: '-fmt sarif -out gosec.sarif ./...'
-      - name: Upload SARIF
-        if: >-
-          steps.probe.outputs.has_go == 'true' &&
-          hashFiles('gosec.sarif') != '' &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # github/codeql-action@v4.39.1
-        with:
-          sarif_file: gosec.sarif
-
-  image:
-    name: image
-    needs: [changes]
-    if: >-
-      (github.event_name == 'pull_request' || github.event_name == 'push') &&
-      needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      - name: Probe for a Dockerfile
-        id: probe
-        run: |
-          if [ -f Dockerfile ]; then
-            echo "has_dockerfile=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_dockerfile=false" >> "$GITHUB_OUTPUT"
-            echo "No Dockerfile; nothing to build."
-          fi
-      - name: Setup Buildx
-        if: steps.probe.outputs.has_dockerfile == 'true'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # docker/setup-buildx-action@v4.4.1
-      - name: docker build (no push)
-        if: steps.probe.outputs.has_dockerfile == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # docker/build-push-action@v7.4.0
-        with:
-          context: .
-          push: false
-
-  actionlint:
-    name: actionlint
-    needs: [changes]
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        needs.changes.outputs.workflows == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-      # Pinned actionlint binary (no reviewdog, no extra permissions).
-      - name: actionlint
-        env:
-          ACTIONLINT_VERSION: 1.7.7
-          # rhysd/actionlint v1.7.7 actionlint_1.7.7_checksums.txt.
-          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
-        run: |
-          curl -sSfL -o /tmp/actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
-          /tmp/actionlint
+    # No timeout-minutes: the schema forbids it on reusable-call jobs. Each
+    # inner lane carries its own timeout, which bounds this job.
+    uses: eshu-hq/.github/.github/workflows/go-collector-ci.yml@4d01ab90baf5dd77c21cc1ee6bdf701332613449 # v2
+    with:
+      module: scanner-worker
+      go-version-file: go.mod
+      # Child issue #5. First measured baseline: 67.4% at the analyzer-lanes
+      # + OS parser landing (PR #20). The floor sits at the highest measured
+      # baseline and may only rise; the epic does not close below 90.
+      # Pinned equal to the Makefile by TestCoverageFloorParity.
+      coverage-floor: 67.4
+      golangci-lint-version: v2.12.2
+      govulncheck-version: v1.9.0
+      gosec-version: v2.30.0
+      actionlint-version: 1.7.12
+      actionlint-sha256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      run-lint: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.go_module == 'true' || needs.changes.outputs.workflows == 'true')) }}
+      run-test: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.go_module == 'true' || needs.changes.outputs.fixtures == 'true' || needs.changes.outputs.workflows == 'true')) }}
+      run-race: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.go_module == 'true' || needs.changes.outputs.workflows == 'true')) }}
+      run-shell: ${{ ((github.event_name == 'pull_request' || github.event_name == 'push') && needs.changes.outputs.shell == 'true') }}
+      run-image: ${{ ((github.event_name == 'pull_request' || github.event_name == 'push') && needs.changes.outputs.docker == 'true') }}
+      image-tag: eshu-scanner-worker:ci
+      image-context: .
+      run-govulncheck: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && (needs.changes.outputs.go_module == 'true')) }}
+      run-gosec: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.go_module == 'true')) }}
+      gosec-fail-on-findings: ${{ github.event_name == 'schedule' }}
+      run-actionlint: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && needs.changes.outputs.workflows == 'true') }}
 
   ci-complete:
-    name: ci-complete
+    needs: [changes, lanes]
     if: always()
-    needs: [changes, lint, test, race, shell, govulncheck, gosec, image, actionlint]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
-      - name: Aggregate lane results
-        env:
-          LINT_RESULT: ${{ needs.lint.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          RACE_RESULT: ${{ needs.race.result }}
-          SHELL_RESULT: ${{ needs.shell.result }}
-          GOVULNCHECK_RESULT: ${{ needs.govulncheck.result }}
-          GOSEC_RESULT: ${{ needs.gosec.result }}
-          IMAGE_RESULT: ${{ needs.image.result }}
-          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+      - name: aggregate (pass when needed lanes passed or legitimately skipped)
         run: |
-          fail=0
-          for lane in LINT TEST RACE SHELL GOVULNCHECK GOSEC IMAGE ACTIONLINT; do
-            result=$(printenv "${lane}_RESULT")
-            echo "$lane: $result"
-            case "$result" in
-              success|skipped) ;;
-              *) fail=1 ;;
-            esac
-          done
-          if [ "$fail" -eq 0 ]; then
-            echo "ci-complete: every needed lane passed; the rest were legitimately skipped." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "ci-complete: a needed lane failed or was cancelled." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          python3 - <<'EOF'
+          import json, os
+          # NEEDS_JSON is toJSON(needs): {job: {"result": ..., "outputs": ...}}.
+          # Compare v["result"]: comparing whole job objects never matches
+          # (false-green), and needs.*.result is a bare ARRAY that kills
+          # green runs. Proven by the seeded red/green lane proofs in the
+          # closing PR; never change this shape without re-seeding.
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {k: v.get("result") for k, v in needs.items()
+                 if isinstance(v, dict) and v.get("result") in ("failure", "cancelled")}
+          if bad:
+              print("FAIL:", bad)
+              raise SystemExit(1)
+          print("ci-complete: pass (skips allowed)")
+          EOF
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
