@@ -134,3 +134,23 @@ func TestPageBoundRejectsNegative(t *testing.T) {
 		t.Fatal("pageBound(-1) error = nil, want rejection")
 	}
 }
+
+// emptySnapshots returns a valid Alpine snapshot with no installed packages.
+type emptySnapshots struct{}
+
+func (emptySnapshots) Snapshot(context.Context, osruntime.TargetConfig, scannerworker.ResourceLimits) (osruntime.Snapshot, scannerworker.ResourceUsage, error) {
+	return osruntime.Snapshot{Distro: "alpine", DistroVersion: "3.19.1", PackageManager: "apk"}, scannerworker.ResourceUsage{}, nil
+}
+
+// TestRunnerSilentCleanOutputFailsTerminal proves an analysis that emits no
+// fact at all ends terminal as invalid output: scanner workers must emit an
+// explicit fact or warning, never a silent clean result.
+func TestRunnerSilentCleanOutputFailsTerminal(t *testing.T) {
+	t.Parallel()
+
+	claim := testClaim(IDOSRuntime, testImageScopeID, "scanner-worker:generation-test")
+	page, _ := runWithSnapshots(t, testRequest(t, claim, osruntimeConfig("/r", 0)), emptySnapshots{})
+	if page.State != sdkcollector.ResultTerminal || page.Statuses[0].FailureClass != "component_invalid_output" {
+		t.Fatalf("state=%q statuses=%+v, want terminal component_invalid_output", page.State, page.Statuses)
+	}
+}
