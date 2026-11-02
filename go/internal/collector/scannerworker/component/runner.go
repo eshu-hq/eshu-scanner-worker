@@ -63,6 +63,10 @@ type Runner struct {
 	// targets decode and validate. Test seam only: the SBOM golden was
 	// captured from a synthetic inventory, not a repository walk.
 	inventory sbomgenerator.Source
+	// analyzer replaces the analyzer buildAnalyzer constructs. Test seam
+	// only: it lets a test inject an analyzer failure without a
+	// multi-gigabyte layer.
+	analyzer scannerworker.Analyzer
 }
 
 // request mirrors the host wire document at the JSON level. Decoding is
@@ -157,6 +161,9 @@ func (r Runner) Run(ctx context.Context) error {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, class)
 		return r.emitTerminal(req.Claim, observedAt, class)
 	}
+	if r.analyzer != nil {
+		executor = r.analyzer
+	}
 	bound, err := pageBound(config.PageBoundBytes)
 	if err != nil {
 		return err
@@ -167,7 +174,7 @@ func (r Runner) Run(ctx context.Context) error {
 	cancel()
 	latencyMS := int(time.Since(start).Milliseconds())
 	if err != nil {
-		r.log(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err))
+		r.logFailure(analyzer, observedAt, err)
 		return r.emitFailure(req.Claim, observedAt, err)
 	}
 	output := result.Output
@@ -322,35 +329,4 @@ func (r Runner) emit(claim sdkcollector.Claim, observedAt time.Time, state sdkco
 		return fmt.Errorf("write component result: %w", err)
 	}
 	return nil
-}
-
-// log writes one structured stderr line per call. It carries the component
-// identity, outcome, and counts only: claim values (scope IDs, image
-// references, paths, digests) never appear in logs. observed_at is the claim
-// observation time every fact of the claim carries, next to "at", the clock
-// of this call, so an operator can confirm from stderr alone that every page
-// of one claim shares one observed_at.
-func (r Runner) log(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class string) {
-	if r.Stderr == nil {
-		return
-	}
-	record := map[string]any{
-		"component":   r.ComponentID,
-		"analyzer":    string(analyzer),
-		"state":       string(state),
-		"page":        page,
-		"facts":       facts,
-		"total":       total,
-		"at":          r.clock().Format(time.RFC3339Nano),
-		"observed_at": observedAt.UTC().Format(time.RFC3339Nano),
-	}
-	if class != "" {
-		record["failure_class"] = class
-	}
-	raw, err := json.Marshal(record)
-	if err != nil {
-		return
-	}
-	raw = append(raw, '\n')
-	_, _ = r.Stderr.Write(raw)
 }

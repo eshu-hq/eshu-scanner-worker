@@ -26,12 +26,27 @@ type AnalyzerFailure struct {
 	class     FailureClass
 	retryable bool
 	usage     ResourceUsage
+	detail    *InputLimitDetail
+}
+
+// InputLimitDetail carries the byte figures behind an input_limit_exceeded
+// failure. It holds numbers only: no path, image reference, digest, or any
+// string, so the component may print it on its stderr line. Every field must
+// stay an int64; a test fails the moment a string field appears.
+type InputLimitDetail struct {
+	// InflatedBytes is the decompressed bytes counted when the budget broke.
+	InflatedBytes int64
+	// BudgetBytes is the decompressed-byte budget that applied.
+	BudgetBytes int64
+	// CompressedBytes is the sum of the layer file sizes read so far.
+	CompressedBytes int64
 }
 
 // NewRetryableAnalyzerFailure records a retryable analyzer failure class.
 func NewRetryableAnalyzerFailure(class FailureClass, usage ResourceUsage, cause error) error {
 	// The raw cause can contain repository paths, image names, or package
 	// coordinates. Keep workflow payloads bounded to failure_class and usage.
+	// Numeric detail travels in InputLimitDetail, never in the cause text.
 	_ = cause
 	return AnalyzerFailure{class: class, retryable: true, usage: usage}
 }
@@ -40,8 +55,28 @@ func NewRetryableAnalyzerFailure(class FailureClass, usage ResourceUsage, cause 
 func NewTerminalAnalyzerFailure(class FailureClass, usage ResourceUsage, cause error) error {
 	// The raw cause can contain repository paths, image names, or package
 	// coordinates. Keep workflow payloads bounded to failure_class and usage.
+	// Numeric detail travels in InputLimitDetail, never in the cause text.
 	_ = cause
 	return AnalyzerFailure{class: class, retryable: false, usage: usage}
+}
+
+// NewInputLimitFailure records a terminal input_limit_exceeded failure that
+// carries its byte figures. The cause is discarded exactly as in
+// NewTerminalAnalyzerFailure; only the numeric detail survives.
+func NewInputLimitFailure(usage ResourceUsage, detail InputLimitDetail, cause error) error {
+	// Numeric detail travels in InputLimitDetail, never in the cause text.
+	_ = cause
+	return AnalyzerFailure{class: FailureClassInputLimitExceeded, usage: usage, detail: &detail}
+}
+
+// InputLimit returns the byte figures of an input_limit_exceeded failure and
+// whether this failure carries them. Only a failure built by
+// NewInputLimitFailure does.
+func (f AnalyzerFailure) InputLimit() (InputLimitDetail, bool) {
+	if f.detail == nil {
+		return InputLimitDetail{}, false
+	}
+	return *f.detail, true
 }
 
 func (f AnalyzerFailure) Error() string {

@@ -1,0 +1,286 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025-2026 eshu-hq
+
+package imageanalyzer
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"errors"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+)
+
+// TestLayerReadsUnderHugeInputBudgets proves the guard reads normally when the
+// derived budget saturates. room+1 used to overflow and slice with a negative
+// bound for any MaxInputBytes above MaxInt64/8.
+func TestLayerReadsUnderHugeInputBudgets(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease, "lib/apk/db/installed": alpineDB})
+	for _, maxInput := range []int64{math.MaxInt64 / 8, math.MaxInt64/8 + 1, 1 << 60, math.MaxInt64} {
+		reader := newLayerSnapshotReader(inflateLimits(maxInput))
+		if err := reader.readLayer(context.Background(), layer); err != nil {
+			t.Fatalf("MaxInputBytes=%d readLayer() error = %v, want accepted", maxInput, err)
+		}
+		if reader.inflatedBytes == 0 {
+			t.Fatalf("MaxInputBytes=%d inflatedBytes = 0, want the layer read through the guard", maxInput)
+		}
+	}
+}
+
+// countdownContext reports cancellation after a fixed number of Err calls, so
+// a test can land the cancellation inside an evidence read without a timer.
+type countdownContext struct {
+	context.Context
+	calls atomic.Int64
+	after int64
+}
+
+func (c *countdownContext) Err() error {
+	if c.calls.Add(1) > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestLayerFailuresInsideEvidenceReadKeepTheirClass proves a budget overrun or
+// a cancellation that lands while an evidence file is being read keeps its
+// class. io.ReadAll turns any read error into retryable target_unavailable
+// unless readLayer prefers the guard's error.
+func TestLayerFailuresInsideEvidenceReadKeepTheirClass(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{
+		"etc/os-release": alpineRelease + string(make([]byte, 20000)),
+	})
+	var sawBudget bool
+	for maxInput := int64(2200); maxInput <= 2800; maxInput += 8 {
+		reader := newLayerSnapshotReader(inflateLimits(maxInput))
+		err := reader.readLayer(context.Background(), layer)
+		if errors.Is(err, errTargetUnavailable) || errors.Is(err, errUnsupportedTarget) {
+			t.Fatalf("MaxInputBytes=%d error = %v, want input limit or success, never a read-failure class", maxInput, err)
+		}
+		sawBudget = sawBudget || errors.Is(err, errInputLimitExceeded)
+	}
+	if !sawBudget {
+		t.Fatal("no budget overran inside the evidence read, so the sweep proved nothing")
+	}
+
+	var sawCancel bool
+	for after := int64(0); after < 12; after++ {
+		ctx := &countdownContext{Context: context.Background(), after: after}
+		reader := newLayerSnapshotReader(inflateLimits(1 << 30))
+		err := reader.readLayer(ctx, layer)
+		if errors.Is(err, errTargetUnavailable) || errors.Is(err, errUnsupportedTarget) {
+			t.Fatalf("cancel after %d checks error = %v, want source unavailable or success", after, err)
+		}
+		sawCancel = sawCancel || errors.Is(err, errSourceUnavailable)
+	}
+	if !sawCancel {
+		t.Fatal("no cancellation landed, so the sweep proved nothing")
+	}
+}
+
+// TestAnalyzeReportsInflateBudgetFiguresThroughTheWrap proves the figures
+// survive the production wrap, not only the raw readLayer error.
+func TestAnalyzeReportsInflateBudgetFiguresThroughTheWrap(t *testing.T) {
+	t.Parallel()
+
+	layer := writeZeroEntryLayer(t, 64*mebibyte)
+	input := testImageClaimInput(t)
+	input.Limits.MaxInputBytes = 2 * mebibyte
+	analyzer := newTestAnalyzer(t, TargetConfig{ScopeID: input.Target.ScopeID, LayerPaths: []string{layer}})
+	_, err := analyzer.Analyze(context.Background(), input)
+	assertImageFailure(t, err, scannerworker.FailureClassInputLimitExceeded, false)
+	var failure scannerworker.AnalyzerFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("Analyze() error = %T, want AnalyzerFailure", err)
+	}
+	detail, ok := failure.InputLimit()
+	if !ok || detail.BudgetBytes != 16*mebibyte || detail.InflatedBytes <= detail.BudgetBytes || detail.CompressedBytes <= 0 {
+		t.Fatalf("InputLimit() = %+v, %t, want the 16 MiB budget overrun with a compressed size", detail, ok)
+	}
+}
+
+// TestLayerEmptyGzipMemberFloodHonorsDeadline reproduces the review finding:
+// gzip skips empty members inside one Read, so a flood of 20-byte members ran
+// past the deadline without ever reaching the guard. The context cancels after
+// a fixed number of checks, so the test does not depend on load, and it fails
+// without the context-checking reader below gzip.
+func TestLayerEmptyGzipMemberFloodHonorsDeadline(t *testing.T) {
+	t.Parallel()
+
+	var member bytes.Buffer
+	gzipWriter := gzip.NewWriter(&member)
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("gzip Close: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "flood.tar.gz")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	for i := 0; i < 3_000_000; i++ {
+		if _, err := file.Write(member.Bytes()); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	ctx := &countdownContext{Context: context.Background(), after: 50}
+	reader := newLayerSnapshotReader(inflateLimits(1 << 30))
+	done := make(chan error, 1)
+	go func() { done <- reader.readLayer(ctx, path) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errSourceUnavailable) {
+			t.Fatalf("readLayer() error = %v, want source unavailable once the context cancels", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("readLayer() still reading the empty-member flood 30s after the context canceled")
+	}
+	if checks := ctx.calls.Load(); checks > 60 {
+		t.Fatalf("context was checked %d times, want the read stopped within a few checks of the 50th", checks)
+	}
+}
+
+// TestLayerMetaRecordChainStopsWhileStreaming proves the file budget cuts a
+// gzip record chain while it streams, not after tar.Reader has consumed all of
+// it: with MaxFiles=3 the reader stops within a few blocks of the layer start.
+func TestLayerMetaRecordChainStopsWhileStreaming(t *testing.T) {
+	t.Parallel()
+
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	layer := metaChainLayer(t, record, headerOnlyEntries, true)
+	limits := inflateLimits(1 << 40)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	err := reader.readLayer(context.Background(), layer)
+	if !errors.Is(err, errFileLimitExceeded) {
+		t.Fatalf("readLayer() error = %v, want file limit", err)
+	}
+	if reader.inflatedBytes > 16*tarBlockBytes {
+		t.Fatalf("inflatedBytes = %d, want the chain cut within 16 blocks, not read to its %d-byte end", reader.inflatedBytes, headerOnlyEntries*len(record))
+	}
+}
+
+// TestLayerLargeEvidenceFileSurvivesSmallFileBudget proves the stream limit
+// guards only the span where tar.Reader looks for the next header: an
+// evidence body far larger than 512 bytes per remaining unit must still read.
+func TestLayerLargeEvidenceFileSurvivesSmallFileBudget(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease + strings.Repeat("#", 256*1024)})
+	limits := inflateLimits(1 << 30)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	if err := reader.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("readLayer() error = %v, want the 256 KiB evidence file accepted under MaxFiles=3", err)
+	}
+	if len(reader.files["etc/os-release"]) < 256*1024 {
+		t.Fatalf("os-release = %d bytes, want the whole file", len(reader.files["etc/os-release"]))
+	}
+}
+
+// TestLayerInflateFiguresAccumulateAcrossLayers proves the figures in the
+// budget error count the whole target: compressed_bytes sums the layer files
+// read so far and inflated_bytes continues from the earlier layers.
+func TestLayerInflateFiguresAccumulateAcrossLayers(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease, "tmp/pad": string(make([]byte, 8192))})
+	info, err := os.Stat(layer)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	probe := newLayerSnapshotReader(inflateLimits(1 << 30))
+	if err := probe.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("probe readLayer() error = %v", err)
+	}
+	consumed := probe.inflatedBytes
+
+	unit := consumed / layerInflateBudgetMultiplier
+	reader := newLayerSnapshotReader(inflateLimits(unit + unit/2))
+	if err := reader.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("first layer error = %v, want accepted", err)
+	}
+	if reader.inflatedBytes != consumed || reader.compressedBytes != info.Size() {
+		t.Fatalf("after one layer inflated = %d compressed = %d, want %d and %d", reader.inflatedBytes, reader.compressedBytes, consumed, info.Size())
+	}
+	err = reader.readLayer(context.Background(), layer)
+	var budget inflateBudgetError
+	if !errors.As(err, &budget) {
+		t.Fatalf("second layer error = %v, want the inflate budget overrun", err)
+	}
+	want := scannerworker.InputLimitDetail{
+		InflatedBytes:   reader.maxInflated + 1,
+		BudgetBytes:     reader.maxInflated,
+		CompressedBytes: 2 * info.Size(),
+	}
+	if budget.Detail != want {
+		t.Fatalf("Detail = %+v, want %+v (both layers' file sizes, budget+1 inflated)", budget.Detail, want)
+	}
+	if reader.inflatedBytes <= consumed {
+		t.Fatalf("inflatedBytes = %d, want the second layer's bytes added to the first's %d", reader.inflatedBytes, consumed)
+	}
+}
+
+// TestLayerMetaRecordChainAfterAnEntryStopsWhileStreaming proves the stream
+// limit is re-armed for every Next call, not only the first: a record chain
+// that follows a real entry is cut within a few blocks of that entry.
+func TestLayerMetaRecordChainAfterAnEntryStopsWhileStreaming(t *testing.T) {
+	t.Parallel()
+
+	var first bytes.Buffer
+	writer := tar.NewWriter(&first)
+	if err := writer.WriteHeader(&tar.Header{Name: "tmp/first", Typeflag: tar.TypeReg, Mode: 0o644, Size: 5}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if _, err := writer.Write([]byte("hello")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	raw := append(append([]byte(nil), first.Bytes()...), bytes.Repeat(record, headerOnlyEntries)...)
+	layer := writeRawLayer(t, raw, true, true)
+
+	limits := inflateLimits(1 << 40)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	err := reader.readLayer(context.Background(), layer)
+	if !errors.Is(err, errFileLimitExceeded) {
+		t.Fatalf("readLayer() error = %v, want file limit", err)
+	}
+	if reader.inflatedBytes > 24*tarBlockBytes {
+		t.Fatalf("inflatedBytes = %d, want the chain after the first entry cut within 24 blocks, not read to its %d-byte end", reader.inflatedBytes, headerOnlyEntries*len(record))
+	}
+}
+
+// TestInflateBudgetErrorRendersItsFigures pins the text an operator reads in
+// a returned error.
+func TestInflateBudgetErrorRendersItsFigures(t *testing.T) {
+	t.Parallel()
+
+	err := inflateBudgetError{Detail: scannerworker.InputLimitDetail{InflatedBytes: 9, BudgetBytes: 8, CompressedBytes: 7}}
+	want := "image analyzer input limit exceeded: layer decompressed byte budget exceeded inflated_bytes=9 budget_bytes=8 compressed_bytes=7"
+	if err.Error() != want {
+		t.Fatalf("Error() = %q, want %q", err.Error(), want)
+	}
+	if !errors.Is(err, errInputLimitExceeded) {
+		t.Fatal("errors.Is(inflateBudgetError, errInputLimitExceeded) = false")
+	}
+}
