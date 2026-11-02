@@ -36,11 +36,13 @@ scope.
 `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` for `linux/amd64` and
 `linux/arm64` with SLSA build provenance, a keyless cosign signature, and an
 SPDX SBOM attestation, and verifies all of them against this repository
-before the job succeeds. Verify a digest yourself with:
+before the job succeeds. A `v*` tag publishes only when it points at the
+protected `main` head. Verify a digest yourself with:
 
 ```sh
 gh attestation verify oci://ghcr.io/eshu-hq/scanner-osruntime@sha256:<digest> \
-  -R eshu-hq/eshu-scanner-worker
+  -R eshu-hq/eshu-scanner-worker \
+  --signer-workflow eshu-hq/eshu-scanner-worker/.github/workflows/release.yml
 cosign verify ghcr.io/eshu-hq/scanner-osruntime@sha256:<digest> \
   --certificate-identity-regexp '^https://github.com/eshu-hq/eshu-scanner-worker/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com

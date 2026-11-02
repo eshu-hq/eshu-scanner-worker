@@ -7,7 +7,10 @@ name: release
 # summary into the eshu re-pin PR (scannercomponent manifest pins plus
 # Scanner-Publish-Repo/SHA) and the chart seed.image values. Each image gets
 # SLSA build provenance, a keyless cosign signature, an SPDX SBOM attestation,
-# and a verification of all of them against this repository.
+# and a verification of all of them against this repository and this
+# workflow. A version tag publishes only when it points at the protected main
+# head (the same guard eshu-webhook uses), so an unmerged commit can never be
+# tagged into an attested image.
 on:
   push:
     branches:
@@ -52,6 +55,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require the tag to point at the protected main head
+        if: github.ref_type == 'tag'
+        env:
+          TAG_COMMIT: ${{ github.sha }}
+        run: |
+          git fetch origin main --quiet
+          main_head="$(git rev-parse origin/main)"
+          if [[ "${TAG_COMMIT}" != "${main_head}" ]]; then
+            echo "tag '${TAG_NAME}' points at ${TAG_COMMIT}, not the protected main head ${main_head}" >&2
+            exit 1
+          fi
       - name: Require the tag to match the manifest version
         if: github.ref_type == 'tag'
         run: |
@@ -164,7 +178,9 @@ jobs:
           OCI_IMAGE_REF: oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
         run: |
           gh attestation verify "${OCI_IMAGE_REF}" \
-            -R "${GITHUB_REPOSITORY}"
+            -R "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
           gh attestation verify "${OCI_IMAGE_REF}" \
             -R "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
             --predicate-type https://spdx.dev/Document/v2.3
