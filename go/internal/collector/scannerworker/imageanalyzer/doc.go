@@ -15,6 +15,8 @@
 //
 // OCI layer reads are bounded three ways: every tar entry counts against
 // MaxFiles, entry names are capped at 4096 bytes, and the decompressed bytes
-// of gzip layers (including skipped entry data) count against MaxInputBytes
-// for the whole target, checked together with the context on every read.
+// of gzip layers (skipped entry data included) count against a target-wide
+// budget of 8x MaxInputBytes (32 GiB on the 4 GiB image default), checked
+// together with the context on every read. The compressed layer bytes and the
+// evidence file contents count against MaxInputBytes itself.
 package imageanalyzer

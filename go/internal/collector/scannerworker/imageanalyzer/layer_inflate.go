@@ -7,7 +7,25 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 )
+
+// layerInflateBudgetMultiplier sizes the decompressed-byte budget as a
+// multiple of MaxInputBytes. Legitimate gzip layers inflate about 2.5x to 3x;
+// a decompression bomb inflates about 1000x. 8x sits above every realistic
+// whole image (32 GiB on the 4 GiB image default) and two orders of magnitude
+// below the bomb signature. It is a package constant, not a limit field, so
+// no config surface carries it.
+const layerInflateBudgetMultiplier = 8
+
+// inflateBudget returns the decompressed-byte budget for maxInputBytes,
+// saturating at math.MaxInt64 instead of overflowing.
+func inflateBudget(maxInputBytes int64) int64 {
+	if maxInputBytes > math.MaxInt64/layerInflateBudgetMultiplier {
+		return math.MaxInt64
+	}
+	return maxInputBytes * layerInflateBudgetMultiplier
+}
 
 // inflateGuard wraps the decompressed layer stream. It charges every byte the
 // tar reader pulls from the gzip stream, including entry data the reader
@@ -42,7 +60,12 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 	}
 	n, err := g.src.Read(p)
 	if int64(n) > room {
-		g.err = fmt.Errorf("%w: layer decompressed byte budget exceeded", errInputLimitExceeded)
+		// Byte counts are privacy-safe and let an operator tell a bomb from a
+		// large legitimate image.
+		g.err = fmt.Errorf(
+			"%w: layer decompressed byte budget exceeded inflated_bytes=%d budget_bytes=%d compressed_bytes=%d",
+			errInputLimitExceeded, g.budget.inflatedBytes+int64(n), g.budget.maxInflated, g.budget.compressedBytes,
+		)
 		return 0, g.err
 	}
 	g.budget.inflatedBytes += int64(n)

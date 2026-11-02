@@ -33,6 +33,7 @@ const (
 type layerSnapshotReader struct {
 	remainingBytes  int64
 	inflatedBytes   int64
+	compressedBytes int64
 	maxInflated     int64
 	maxFiles        int64
 	filesSeen       int64
@@ -47,7 +48,7 @@ func newLayerSnapshotReader(limits scannerworker.ResourceLimits) *layerSnapshotR
 	return &layerSnapshotReader{
 		remainingBytes:  limits.MaxInputBytes,
 		maxFiles:        limits.MaxFiles,
-		maxInflated:     limits.MaxInputBytes,
+		maxInflated:     inflateBudget(limits.MaxInputBytes),
 		startCPUSeconds: currentUserCPUSeconds(),
 		files:           make(map[string][]byte, layerRegularFiles),
 		oversizedRPM:    make(map[string]bool),
@@ -159,6 +160,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 		return fmt.Errorf("%w: layer byte budget exceeded", errInputLimitExceeded)
 	}
 	r.remainingBytes -= info.Size()
+	r.compressedBytes += info.Size()
 	if info.Size() > r.peakBytes {
 		r.peakBytes = info.Size()
 	}

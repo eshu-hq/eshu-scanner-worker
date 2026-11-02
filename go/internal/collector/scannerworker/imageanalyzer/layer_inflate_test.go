@@ -9,8 +9,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,10 +74,20 @@ func TestLayerInflateBudgetStopsLargeSkippedEntry(t *testing.T) {
 		t.Fatalf("layer size = %v, %v, want a high-ratio layer under 4 MiB", info, err)
 	}
 	budget := 64 * mebibyte
-	reader := newLayerSnapshotReader(inflateLimits(budget))
+	reader := newLayerSnapshotReader(inflateLimits(budget / layerInflateBudgetMultiplier))
 	err := reader.readLayer(context.Background(), layer)
 	if !errors.Is(err, errInputLimitExceeded) {
 		t.Fatalf("readLayer() error = %v, want input limit", err)
+	}
+	for _, want := range []string{
+		"inflated_bytes=", "budget_bytes=" + strconv.FormatInt(budget, 10), "compressed_bytes=" + strconv.FormatInt(reader.compressedBytes, 10),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to carry %q", err, want)
+		}
+	}
+	if reader.compressedBytes <= 0 {
+		t.Fatalf("compressedBytes = %d, want the layer file size", reader.compressedBytes)
 	}
 	if reader.inflatedBytes > budget {
 		t.Fatalf("inflatedBytes = %d, want at most the %d budget", reader.inflatedBytes, budget)
@@ -114,25 +127,44 @@ func TestLayerInflateBudgetBoundary(t *testing.T) {
 		t.Fatalf("probe readLayer() error = %v", err)
 	}
 	consumed := probe.inflatedBytes
-	if consumed < 8192 {
-		t.Fatalf("probe inflatedBytes = %d, want the layer's decompressed bytes", consumed)
+	if consumed < 8192 || consumed%(2*layerInflateBudgetMultiplier) != 0 {
+		t.Fatalf("probe inflatedBytes = %d, want whole 512-byte blocks of at least 8192 bytes", consumed)
 	}
 
-	exact := newLayerSnapshotReader(inflateLimits(consumed))
+	// The budget is 8x MaxInputBytes, and consumed is a whole number of
+	// 512-byte blocks, so consumed/8 sets the budget to exactly consumed.
+	unit := consumed / layerInflateBudgetMultiplier
+	exact := newLayerSnapshotReader(inflateLimits(unit))
 	if err := exact.readLayer(context.Background(), layer); err != nil {
 		t.Fatalf("budget == consumed error = %v, want accepted", err)
 	}
-	short := newLayerSnapshotReader(inflateLimits(consumed - 1))
+	short := newLayerSnapshotReader(inflateLimits(unit - 1))
 	if err := short.readLayer(context.Background(), layer); !errors.Is(err, errInputLimitExceeded) {
-		t.Fatalf("budget == consumed-1 error = %v, want input limit", err)
+		t.Fatalf("budget == consumed-8 error = %v, want input limit", err)
 	}
 
-	shared := newLayerSnapshotReader(inflateLimits(consumed + consumed/2))
+	shared := newLayerSnapshotReader(inflateLimits(unit + unit/2))
 	if err := shared.readLayer(context.Background(), layer); err != nil {
 		t.Fatalf("first layer error = %v, want accepted", err)
 	}
 	if err := shared.readLayer(context.Background(), layer); !errors.Is(err, errInputLimitExceeded) {
 		t.Fatalf("second layer error = %v, want the shared budget exhausted", err)
+	}
+}
+
+// TestInflateBudgetScalesAndSaturates proves the budget is 8x MaxInputBytes
+// (32 GiB on the 4 GiB image default) and saturates instead of overflowing.
+func TestInflateBudgetScalesAndSaturates(t *testing.T) {
+	t.Parallel()
+
+	if got, want := newLayerSnapshotReader(inflateLimits(4*1024*mebibyte)).maxInflated, 32*1024*mebibyte; got != want {
+		t.Fatalf("maxInflated(4 GiB) = %d, want %d", got, want)
+	}
+	if got := newLayerSnapshotReader(inflateLimits(math.MaxInt64 / 4)).maxInflated; got != math.MaxInt64 {
+		t.Fatalf("maxInflated(MaxInt64/4) = %d, want saturation at MaxInt64", got)
+	}
+	if got := inflateBudget(math.MaxInt64 / layerInflateBudgetMultiplier); got != math.MaxInt64/layerInflateBudgetMultiplier*layerInflateBudgetMultiplier {
+		t.Fatalf("inflateBudget(largest exact) = %d, want the exact product", got)
 	}
 }
 
