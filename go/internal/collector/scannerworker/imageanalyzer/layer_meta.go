@@ -99,7 +99,9 @@ func (m *metaMeter) trailingBlocks() int64 {
 // isSparse reports whether h is a sparse entry in either GNU format. Its body
 // is a logical stream: draining it generates zeros for the declared size at no
 // cost to any byte budget, and its wire size cannot be read from Header.Size.
-// Container layers carry no sparse files, so the reader rejects them.
+// The OCI image-spec says sparse files SHOULD NOT be used in a layer because
+// tar implementations support them inconsistently (layer.md), so the reader
+// rejects them.
 func isSparse(h *tar.Header) bool {
 	if h.Typeflag == tar.TypeGNUSparse {
 		return true

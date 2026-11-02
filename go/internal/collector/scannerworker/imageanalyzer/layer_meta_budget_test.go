@@ -248,8 +248,9 @@ func writeRawLayer(t *testing.T, raw []byte, trailer, compress bool) string {
 // fast, in both GNU formats and for both layer encodings. Its body is a
 // logical stream: draining it would generate zeros for the declared hole at
 // no cost to any byte budget, and its wire size cannot be read from
-// Header.Size. Container layers carry no sparse files, so any sparse entry
-// makes the whole image report unsupported evidence.
+// Header.Size. The OCI image-spec says sparse files SHOULD NOT be used in a
+// layer (layer.md), so any sparse entry makes the whole image report the
+// unsupported-evidence warning, with no package facts.
 func TestLayerSparseEntryIsUnsupported(t *testing.T) {
 	t.Parallel()
 
@@ -264,19 +265,28 @@ func TestLayerSparseEntryIsUnsupported(t *testing.T) {
 					raw = paxSparsePrefix(t, "var/cache/sparse", realSize)
 				}
 				layer := writeRawLayer(t, raw, true, compress)
-				done := make(chan struct{})
+				// The goroutine only records results: a hang must fail the test
+				// from the test goroutine, and Fatal is not allowed elsewhere.
+				type outcome struct {
+					rejection  error
+					result     scannerworker.AnalyzerResult
+					analyzeErr error
+				}
+				input := testImageClaimInput(t)
+				analyzer := newTestAnalyzer(t, TargetConfig{ScopeID: input.Target.ScopeID, ImageDigest: testImageDigest, LayerPaths: []string{layer}})
+				done := make(chan outcome, 1)
 				go func() {
-					defer close(done)
 					_, _, err := readLayerSnapshot(context.Background(), TargetConfig{LayerPaths: []string{layer}},
 						scannerworker.ResourceLimits{MaxInputBytes: 1 << 30, MaxFiles: 100})
-					if !errors.Is(err, errUnsupportedTarget) || !strings.Contains(err.Error(), "sparse layer entry") {
-						t.Errorf("%s: readLayerSnapshot() error = %v, want the sparse-entry rejection, not a parse failure", name, err)
-					}
-					result, aerr := analyzeLayers(t, testImageDigest, layer)
-					assertUnsupportedWarning(t, result, aerr, extractionMalformedImage)
+					result, aerr := analyzer.Analyze(context.Background(), input)
+					done <- outcome{rejection: err, result: result, analyzeErr: aerr}
 				}()
 				select {
-				case <-done:
+				case got := <-done:
+					if !errors.Is(got.rejection, errUnsupportedTarget) || !strings.Contains(got.rejection.Error(), "sparse layer entry") {
+						t.Fatalf("%s: readLayerSnapshot() error = %v, want the sparse-entry rejection, not a parse failure", name, got.rejection)
+					}
+					assertUnsupportedWarning(t, got.result, got.analyzeErr, extractionMalformedImage)
 				case <-time.After(5 * time.Second):
 					t.Fatalf("%s: still draining a %d-byte sparse hole after 5s", name, realSize)
 				}
