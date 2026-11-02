@@ -6,7 +6,9 @@ package imageanalyzer
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,7 +55,7 @@ func assertPackages(t *testing.T, layers []string, want int, reason string) {
 }
 
 // TestLayerNonRegularEntryReplacesLowerFile covers "Changeset over existing
-// files": a symlink, hard link, or directory entry at a path removes the
+// files": a symlink, directory, or fifo entry at a path removes the
 // lower regular file there.
 func TestLayerNonRegularEntryReplacesLowerFile(t *testing.T) {
 	t.Parallel()
@@ -173,11 +175,15 @@ func TestLayerWhiteoutAppliesOnlyToLowerLayers(t *testing.T) {
 }
 
 // TestLayerIgnoresInertWhiteoutNames proves names that cannot hide a real
-// path (a bare ".wh." and AUFS ".wh..wh." metadata) leave lower files alone.
+// path leave lower files alone: a bare ".wh.", AUFS ".wh..wh." metadata, and
+// ".wh.." and ".wh...", whose targets "." and ".." would otherwise name the
+// directory itself or its parent (containerd rejects them as invalid
+// whiteout names). The AUFS names cannot match a tracked path either way, so
+// they pin behaviour rather than a branch.
 func TestLayerIgnoresInertWhiteoutNames(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"lib/apk/db/.wh.", "lib/apk/db/.wh..wh.plnk", "lib/apk/db/.wh..wh.aufs"} {
+	for _, name := range []string{"lib/apk/db/.wh.", "lib/apk/db/.wh..wh.plnk", "lib/apk/db/.wh..wh.aufs", "lib/apk/db/.wh..", "lib/apk/.wh...", "lib/apk/db/.wh..."} {
 		upper := writePlainTar(t, []tarEntry{{name: name, typeflag: tar.TypeReg}})
 		assertPackages(t, []string{alpineLower(t), upper}, 1, "")
 	}
@@ -237,4 +243,85 @@ func TestLayerGlobalPAXHeaderIsInert(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	assertPackages(t, []string{alpineLower(t), path}, 1, "")
+}
+
+// writeOversizedRPMLayer writes a plain layer whose rpm database is one byte
+// over the size the reader keeps, so the reader records it as oversized.
+func writeOversizedRPMLayer(t *testing.T) string {
+	t.Helper()
+	var body bytes.Buffer
+	writer := tar.NewWriter(&body)
+	size := int64(64<<20) + 1
+	if err := writer.WriteHeader(&tar.Header{Name: rpmSQLitePath, Typeflag: tar.TypeReg, Mode: 0o644, Size: size}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if _, err := io.CopyN(writer, zeroReader{}, size); err != nil {
+		t.Fatalf("CopyN: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "rpm.tar")
+	if err := os.WriteFile(path, body.Bytes(), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+// TestLayerWhiteoutClearsOversizedRPMDatabase proves every whiteout form
+// removes an oversized rpm database record, so a hidden database cannot still
+// flag the image as too large.
+func TestLayerWhiteoutClearsOversizedRPMDatabase(t *testing.T) {
+	t.Parallel()
+
+	lower := writeOversizedRPMLayer(t)
+	control := newLayerSnapshotReader(inflateLimits(1 << 40))
+	if err := control.readLayer(context.Background(), lower); err != nil {
+		t.Fatalf("lower readLayer() error = %v", err)
+	}
+	if !rpmLayerDatabaseTooLarge(control.files, control.oversizedRPM) || control.pathLayer[rpmSQLitePath] != 1 {
+		t.Fatalf("lower layer oversized = %v tracked = %v, want the oversized database tracked at layer 1",
+			control.oversizedRPM, control.pathLayer)
+	}
+	for name, marker := range map[string]string{
+		"file":   "usr/lib/sysimage/rpm/.wh.rpmdb.sqlite",
+		"dir":    "usr/lib/sysimage/.wh.rpm",
+		"opaque": "usr/lib/sysimage/rpm/.wh..wh..opq",
+		"root":   ".wh..wh..opq",
+	} {
+		upper := writePlainTar(t, []tarEntry{{name: marker, typeflag: tar.TypeReg}})
+		reader := newLayerSnapshotReader(inflateLimits(1 << 40))
+		for _, layer := range []string{lower, upper} {
+			if err := reader.readLayer(context.Background(), layer); err != nil {
+				t.Fatalf("%s readLayer() error = %v", name, err)
+			}
+		}
+		if rpmLayerDatabaseTooLarge(reader.files, reader.oversizedRPM) || len(reader.oversizedRPM) != 0 || len(reader.pathLayer) != 0 {
+			t.Fatalf("%s whiteout left oversized = %v tracked = %v, want none", name, reader.oversizedRPM, reader.pathLayer)
+		}
+	}
+}
+
+// TestLayerLaterEntryReplacesEarlierEntryInSameLayer proves extraction order
+// inside one layer: a later entry at a path replaces an earlier one whatever
+// its type, unlike a whiteout, which never reaches its own layer.
+func TestLayerLaterEntryReplacesEarlierEntryInSameLayer(t *testing.T) {
+	t.Parallel()
+
+	release := tarEntry{name: "etc/os-release", typeflag: tar.TypeReg, body: alpineRelease}
+	db := tarEntry{name: "lib/apk/db/installed", typeflag: tar.TypeReg, body: alpineDB}
+	for name, tc := range map[string]struct {
+		entries []tarEntry
+		want    int
+	}{
+		"symlink after file":   {[]tarEntry{release, db, {name: "lib/apk/db/installed", typeflag: tar.TypeSymlink}}, 0},
+		"directory after file": {[]tarEntry{release, db, {name: "lib/apk/db/installed/", typeflag: tar.TypeDir}}, 0},
+		"file over ancestor":   {[]tarEntry{release, db, {name: "lib/apk", typeflag: tar.TypeReg, body: "x"}}, 0},
+		"file after symlink":   {[]tarEntry{release, {name: "lib/apk/db/installed", typeflag: tar.TypeSymlink}, db}, 1},
+		"file after file":      {[]tarEntry{release, {name: "lib/apk/db/installed", typeflag: tar.TypeReg, body: "P:old\nV:1\n\n"}, db}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertPackages(t, []string{writePlainTar(t, tc.entries)}, tc.want, extractionUnsupported)
+		})
+	}
 }

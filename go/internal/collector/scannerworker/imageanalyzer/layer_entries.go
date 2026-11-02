@@ -113,9 +113,12 @@ func (r *layerSnapshotReader) applyWhiteout(name string) {
 		return
 	}
 	target := strings.TrimPrefix(base, whiteoutPrefix)
-	if target == "" || strings.HasPrefix(target, whiteoutPrefix) {
-		// A bare ".wh." and AUFS ".wh..wh.*" metadata name no real path:
-		// no filesystem can hold a name that begins with ".wh.".
+	if target == "" || target == "." || target == ".." {
+		// A whiteout is the prefix plus the basename to delete (layer.md,
+		// "Whiteouts"). A bare ".wh." names nothing, and ".wh.." or ".wh..."
+		// would name the directory or its parent, which containerd rejects
+		// as an invalid whiteout name. AUFS ".wh..wh.*" metadata names a
+		// path no filesystem can hold, so removing it is already a no-op.
 		return
 	}
 	r.removeEvidence(path.Join(dir, target), true, true, r.layer)
