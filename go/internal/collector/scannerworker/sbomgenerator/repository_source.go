@@ -193,12 +193,13 @@ func (r *repositoryManifestReader) collect(ctx context.Context) ([]Component, []
 // symlink. The open is non-blocking and does not follow a final symlink, and
 // the regular-file test runs on the opened handle, so the mode test and the
 // read act on one object. A non-regular file fails closed as an unsupported
-// target. Reads stop one byte past the budget, so a file that grew after the
+// target. Only the final path component is guarded: a parent directory
+// swapped for a symlink after the walk is still followed. Reads stop one byte past the budget, so a file that grew after the
 // size check cannot allocate without bound.
 func (r *repositoryManifestReader) readManifest(path string) ([]byte, error) {
 	file, err := os.OpenFile(path, manifestOpenFlags, 0) // #nosec G304 -- path is produced by filepath.WalkDir over an indexed repository working tree, not from untrusted external input
 	if err != nil {
-		if isSymlinkOpenError(err) {
+		if isNotRegularOpenError(err) {
 			return nil, r.notRegular(err)
 		}
 		return nil, scannerworker.NewRetryableAnalyzerFailure(

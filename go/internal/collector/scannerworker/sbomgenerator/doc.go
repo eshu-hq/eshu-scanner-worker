@@ -19,8 +19,10 @@
 //
 // The repository source reads each manifest through a non-blocking,
 // no-follow open and checks the opened handle is a regular file, so a path
-// swapped for a FIFO, device, or symlink after the directory walk fails
-// closed as an unsupported target instead of blocking the claim.
+// swapped for a FIFO, device, socket, directory, or symlink after the
+// directory walk fails closed as an unsupported target instead of blocking
+// the claim. The guard covers the final path component only; a parent
+// directory swapped for a symlink after the walk is still followed.
 //
 // The runtime owns filesystem and archive boundaries; this package owns the
 // source-fact contract, the limit-check failure vocabulary, and the

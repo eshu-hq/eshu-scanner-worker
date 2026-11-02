@@ -17,8 +17,12 @@ import (
 // for a writer; a swapped-in symlink fails the open itself.
 const manifestOpenFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOFOLLOW
 
-// isSymlinkOpenError reports whether err is the error O_NOFOLLOW returns when
-// the final path component is a symlink.
-func isSymlinkOpenError(err error) bool {
-	return errors.Is(err, syscall.ELOOP)
+// isNotRegularOpenError reports whether err is an open error that names a
+// non-regular file instead of a transient read problem: ELOOP (EMLINK on the
+// BSDs) when O_NOFOLLOW meets a symlink, and ENXIO when the path is a socket
+// or a device with nothing behind it.
+func isNotRegularOpenError(err error) bool {
+	return errors.Is(err, syscall.ELOOP) ||
+		errors.Is(err, syscall.EMLINK) ||
+		errors.Is(err, syscall.ENXIO)
 }

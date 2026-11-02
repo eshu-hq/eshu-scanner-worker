@@ -7,6 +7,7 @@ package sbomgenerator
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -176,4 +177,28 @@ func TestCollectIgnoresFIFOAtManifestPath(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Collect() blocked on a FIFO at a manifest path")
 	}
+}
+
+// TestReadManifestRejectsSocketSwappedInAfterWalk proves a unix socket at a
+// manifest path fails closed as an unsupported target. open(2) on a socket
+// returns ENXIO, which is not a transient read error.
+func TestReadManifestRejectsSocketSwappedInAfterWalk(t *testing.T) {
+	t.Parallel()
+
+	// A unix socket path is limited to about 104 bytes, so bind in a short
+	// temp dir rather than the long t.TempDir() path.
+	dir, err := os.MkdirTemp("", "sbs")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "package-lock.json")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Skipf("unix sockets unsupported here: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	_, err = readManifestWithin(t, path, 1<<20)
+	assertRepoFailure(t, err, scannerworker.FailureClassUnsupportedTarget, false)
 }

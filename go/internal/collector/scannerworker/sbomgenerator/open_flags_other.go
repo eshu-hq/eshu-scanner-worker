@@ -12,6 +12,6 @@ import "os"
 // the handle still applies.
 const manifestOpenFlags = os.O_RDONLY
 
-// isSymlinkOpenError reports false: without O_NOFOLLOW no open error means
-// "final component is a symlink".
-func isSymlinkOpenError(error) bool { return false }
+// isNotRegularOpenError reports false: without O_NOFOLLOW no open error means
+// the path is a symlink or other special file.
+func isNotRegularOpenError(error) bool { return false }
