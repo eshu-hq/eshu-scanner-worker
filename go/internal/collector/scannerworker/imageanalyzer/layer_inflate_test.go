@@ -99,8 +99,8 @@ func TestLayerInflateBudgetStopsLargeSkippedEntry(t *testing.T) {
 		t.Fatalf("analyzerFailure() = %T, want AnalyzerFailure", failure)
 	}
 	detail, ok := typed.InputLimit()
-	if !ok || detail.BudgetBytes != budget || detail.CompressedBytes != reader.compressedBytes || detail.InflatedBytes <= budget {
-		t.Fatalf("InputLimit() = %+v, %t, want budget %d, compressed %d, and inflated past the budget", detail, ok, budget, reader.compressedBytes)
+	if !ok || detail.BudgetBytes != budget || detail.CompressedBytes != reader.compressedBytes || detail.InflatedBytes != budget+1 {
+		t.Fatalf("InputLimit() = %+v, %t, want budget %d, compressed %d, and inflated exactly one byte past the budget (the read is clamped)", detail, ok, budget, reader.compressedBytes)
 	}
 }
 

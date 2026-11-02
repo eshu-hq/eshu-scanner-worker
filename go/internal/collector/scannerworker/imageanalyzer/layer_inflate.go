@@ -86,8 +86,10 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 		return n, err
 	}
 	if int64(n) > room {
-		// Byte counts are privacy-safe and let an operator tell a bomb from a
-		// large legitimate image.
+		// Byte counts are privacy-safe. The read is clamped to room+1, so
+		// InflatedBytes is always BudgetBytes+1 here; the signal for an
+		// operator is BudgetBytes over CompressedBytes (a bomb is far above
+		// 8x, a large image is not).
 		g.err = inflateBudgetError{Detail: scannerworker.InputLimitDetail{
 			InflatedBytes:   g.budget.inflatedBytes + int64(n),
 			BudgetBytes:     g.budget.maxInflated,

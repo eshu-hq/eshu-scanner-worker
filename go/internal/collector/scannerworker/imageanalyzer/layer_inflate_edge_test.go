@@ -184,3 +184,46 @@ func TestLayerLargeEvidenceFileSurvivesSmallFileBudget(t *testing.T) {
 		t.Fatalf("os-release = %d bytes, want the whole file", len(reader.files["etc/os-release"]))
 	}
 }
+
+// TestLayerInflateFiguresAccumulateAcrossLayers proves the figures in the
+// budget error count the whole target: compressed_bytes sums the layer files
+// read so far and inflated_bytes continues from the earlier layers.
+func TestLayerInflateFiguresAccumulateAcrossLayers(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease, "tmp/pad": string(make([]byte, 8192))})
+	info, err := os.Stat(layer)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	probe := newLayerSnapshotReader(inflateLimits(1 << 30))
+	if err := probe.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("probe readLayer() error = %v", err)
+	}
+	consumed := probe.inflatedBytes
+
+	unit := consumed / layerInflateBudgetMultiplier
+	reader := newLayerSnapshotReader(inflateLimits(unit + unit/2))
+	if err := reader.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("first layer error = %v, want accepted", err)
+	}
+	if reader.inflatedBytes != consumed || reader.compressedBytes != info.Size() {
+		t.Fatalf("after one layer inflated = %d compressed = %d, want %d and %d", reader.inflatedBytes, reader.compressedBytes, consumed, info.Size())
+	}
+	err = reader.readLayer(context.Background(), layer)
+	var budget inflateBudgetError
+	if !errors.As(err, &budget) {
+		t.Fatalf("second layer error = %v, want the inflate budget overrun", err)
+	}
+	want := scannerworker.InputLimitDetail{
+		InflatedBytes:   reader.maxInflated + 1,
+		BudgetBytes:     reader.maxInflated,
+		CompressedBytes: 2 * info.Size(),
+	}
+	if budget.Detail != want {
+		t.Fatalf("Detail = %+v, want %+v (both layers' file sizes, budget+1 inflated)", budget.Detail, want)
+	}
+	if reader.inflatedBytes <= consumed {
+		t.Fatalf("inflatedBytes = %d, want the second layer's bytes added to the first's %d", reader.inflatedBytes, consumed)
+	}
+}
