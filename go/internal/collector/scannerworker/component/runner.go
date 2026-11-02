@@ -19,6 +19,7 @@ import (
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/sbomgenerator"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/factenvelope"
 )
 
@@ -58,6 +59,10 @@ type Runner struct {
 	// (osruntime.LocalRootFSProvider). Test seam only: the parity tests pin
 	// the wall-clock snapshot time the goldens captured.
 	snapshots osruntime.SnapshotProvider
+	// inventory overrides the SBOM repository source after the operator
+	// targets decode and validate. Test seam only: the SBOM golden was
+	// captured from a synthetic inventory, not a repository walk.
+	inventory sbomgenerator.Source
 }
 
 // request mirrors the host wire document at the JSON level. Decoding is
@@ -143,7 +148,7 @@ func (r Runner) Run(ctx context.Context) error {
 		r.log(analyzer, "terminal", 0, 0, 0, "component_bad_claim")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_claim")
 	}
-	executor, err := buildAnalyzer(analyzer, req.Claim, config, observedAt, r.snapshots)
+	executor, err := buildAnalyzer(analyzer, req.Claim, config, observedAt, r.snapshots, r.inventory)
 	if err != nil {
 		r.log(analyzer, "terminal", 0, 0, 0, "component_failed")
 		return r.emitTerminal(req.Claim, observedAt, "component_failed")
@@ -299,11 +304,23 @@ func claimInput(claim sdkcollector.Claim, config Config, analyzer scannerworker.
 // binary accepts exactly what the in-tree worker accepted. A nil provider
 // keeps the analyzer default.
 //
-// Port status (eshu-hq/eshu#8878 box 10): os_package_extraction and
-// image_unpacking are ported; sbom_generation lands in the next port slice
-// and fails closed here until then.
-func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim, config Config, now time.Time, provider osruntime.SnapshotProvider) (scannerworker.Analyzer, error) {
+// A nil provider or inventory keeps the analyzer default; only the parity
+// tests set them.
+func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim, config Config, now time.Time, provider osruntime.SnapshotProvider, inventory sbomgenerator.Source) (scannerworker.Analyzer, error) {
 	switch analyzer {
+	case scannerworker.AnalyzerSBOMGeneration:
+		var targets []sbomgenerator.RepositoryTarget
+		if err := decodeTargets(config.Targets, &targets); err != nil {
+			return nil, err
+		}
+		source, err := sbomgenerator.NewRepositorySource(targets)
+		if err != nil {
+			return nil, err
+		}
+		if inventory != nil {
+			source = inventory
+		}
+		return sbomgenerator.Analyzer{Source: source, Now: func() time.Time { return now }}, nil
 	case scannerworker.AnalyzerImageUnpacking:
 		var targets []imageanalyzer.TargetConfig
 		if err := decodeTargets(config.Targets, &targets); err != nil {

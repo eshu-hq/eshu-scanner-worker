@@ -39,10 +39,15 @@ Component lane, first slice (os_package_extraction):
   snapshots, analysis and warning facts. `AnalyzerConfig.Provider` is new
   (default `osruntime.LocalRootFSProvider`, the provider the in-tree code
   hard-coded) so the parity tests can pin the captured snapshot time.
-- Parity proof: `component/parity_osruntime_test.go` and
-  `component/parity_image_test.go` reproduce the core goldens
-  `testdata/scanner-parity/{osruntime,image}.json` byte for byte, and the
-  runner's v1alpha3 pages equal the pages built from each golden.
+- `scannerworker/sbomgenerator/` (third slice): analyzer, repository
+  source, lockfile parsers, envelopes, warning aggregation; wired into the
+  runner as sbom_generation.
+- `go/internal/packageidentity/`: verbatim copy with its tests (it has no
+  eshu-hq imports; the SDK has no package-identity package).
+- Parity proof: `component/parity_{osruntime,image,sbom}_test.go` reproduce
+  the core goldens `testdata/scanner-parity/{osruntime,image,sbom}.json`
+  byte for byte, and the runner's v1alpha3 pages equal the pages built from
+  each golden.
 - Hostile-input proof: `component/hostile_osruntime_test.go` (the #9380
   full-range run: 50,000 facts at the 4,128,768-byte bound); repository_url
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
@@ -60,12 +65,12 @@ Core-import replacements:
 | `internal/scope` (`CollectorScannerWorker`) | satellite-local `go/internal/scope` | the SDK has no scope package |
 | `internal/factenvelope` (`SDKFactFromInternal`) | satellite-local `go/internal/factenvelope` | projection of the local envelope |
 | `internal/urlredact` (`CarriesUserinfo`) | verbatim `authority.go` in `go/internal/urlredact` | the SDK exposes no userinfo check |
+| `internal/packageidentity` | verbatim copy in `go/internal/packageidentity` | the SDK has no package-identity package; the copy must track core changes |
 
 ## Not yet ported
 
 | Piece | Blocker | Owning work |
 | --- | --- | --- |
-| `scannerworker/sbomgenerator/` | needs a `packageidentity` local copy (SDK has none) | eshu-hq/eshu#8878 box 10, next slice |
 | `scannerworker/component/` `manifest.go`, `seed.go`, `reconcile.go` | need a local subset of core `internal/component` manifest types | eshu-hq/eshu#8878 box 10 |
 | `go/cmd/scanner-component-{image,sbom,osruntime}/` | need `buildinfo` local copy + the manifest/seed slice | eshu-hq/eshu#8878 box 10 |
 | `Dockerfile`, publish workflow, `SECURITY.md` | need the three commands | eshu-hq/eshu#8878 box 10 |

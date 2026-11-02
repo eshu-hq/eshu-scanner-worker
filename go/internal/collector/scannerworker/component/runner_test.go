@@ -271,15 +271,16 @@ func TestRunnerMalformedClaimEmitsTerminal(t *testing.T) {
 	}
 }
 
-// TestRunnerUnportedAnalyzerFailsClosed proves a component identity whose
-// analyzer is not yet ported ends terminal, never executing another
-// analyzer's profile.
-func TestRunnerUnportedAnalyzerFailsClosed(t *testing.T) {
+// TestRunnerRejectsForeignTargetShape proves a binary handed another
+// analyzer's target documents ends terminal (strict target decoding), and an
+// analyzer kind with no component constructor fails closed.
+func TestRunnerRejectsForeignTargetShape(t *testing.T) {
 	t.Parallel()
 
-	for _, id := range []string{IDSBOM} {
-		claim := testClaim(id, testImageScopeID, "gen-1")
-		runTerminal(t, id, testRequest(t, claim, osruntimeConfig("/unused", 0)), "component_failed")
+	claim := testClaim(IDSBOM, testImageScopeID, "gen-1")
+	runTerminal(t, IDSBOM, testRequest(t, claim, osruntimeConfig("/unused", 0)), "component_failed")
+	if _, err := buildAnalyzer(scannerworker.AnalyzerSourceAnalysis, claim, Config{}, testClock(), nil, nil); err == nil {
+		t.Fatal("buildAnalyzer(source_analysis) error = nil, want no component analyzer")
 	}
 }
 
