@@ -57,19 +57,10 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 	return meta / tarBlockBytes
 }
 
-// settle runs after handleEntry. A sparse entry declares its logical size in
-// Header.Size but carries fewer bytes on the wire, so subtracting the padded
-// Size would let it absorb later records. Drain the body and measure from the
-// real position instead; the padding left over is under one block.
-func (m *metaMeter) settle(h *tar.Header, body io.Reader) {
-	if m.pos == nil || !isSparse(h) {
-		return
-	}
-	_, _ = io.Copy(io.Discard, body)
-	m.last = m.pos()
-	m.prevBody = 0
-}
-
+// isSparse reports whether h is a sparse entry in either GNU format. Its body
+// is a logical stream: draining it generates zeros for the declared size at no
+// cost to any byte budget, and its wire size cannot be read from Header.Size.
+// Container layers carry no sparse files, so the reader rejects them.
 func isSparse(h *tar.Header) bool {
 	if h.Typeflag == tar.TypeGNUSparse {
 		return true

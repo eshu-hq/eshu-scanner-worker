@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 )
@@ -269,7 +270,17 @@ func sparseHeader(t *testing.T, name string, realSize int64) []byte {
 	}
 	block := append([]byte(nil), out.Bytes()[:512]...)
 	block[156] = tar.TypeGNUSparse
-	copy(block[483:495], fmt.Sprintf("%011o\x00", realSize))
+	if realSize > 0o77777777777 {
+		// Base-256 numeric field: a set high bit, then a big-endian value.
+		field := block[483:495]
+		field[0] = 0x80
+		for i := len(field) - 1; i > 0 && realSize > 0; i-- {
+			field[i] = byte(realSize)
+			realSize >>= 8
+		}
+	} else {
+		copy(block[483:495], fmt.Sprintf("%011o\x00", realSize))
+	}
 	for i := 148; i < 156; i++ {
 		block[i] = ' '
 	}
@@ -281,33 +292,39 @@ func sparseHeader(t *testing.T, name string, realSize int64) []byte {
 	return block
 }
 
-// TestLayerSparseEntryCannotHideMetaRecords proves an entry whose logical
-// size exceeds its wire bytes cannot absorb a later record flood: the meter
-// drains a sparse body and measures from the real stream position.
-func TestLayerSparseEntryCannotHideMetaRecords(t *testing.T) {
+// TestLayerSparseEntryIsUnsupported proves a sparse entry fails closed. Its
+// body is a logical stream: draining it would generate zeros for the declared
+// size, at no cost to the byte budget, and its wire size cannot be read from
+// Header.Size, so the record meter could not measure past it. Container
+// layers carry no sparse files.
+func TestLayerSparseEntryIsUnsupported(t *testing.T) {
 	t.Parallel()
 
-	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
-	var body bytes.Buffer
-	body.Write(sparseHeader(t, "var/cache/sparse", 100<<20))
-	for i := 0; i < 50000; i++ {
-		body.Write(record)
+	for name, realSize := range map[string]int64{"small": 100 << 20, "multi-EiB": 1 << 62} {
+		var body bytes.Buffer
+		body.Write(sparseHeader(t, "var/cache/sparse", realSize))
+		var tail bytes.Buffer
+		writer := tar.NewWriter(&tail)
+		if err := writer.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		body.Write(tail.Bytes())
+		layer := filepath.Join(t.TempDir(), "sparse.tar")
+		if err := os.WriteFile(layer, body.Bytes(), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			result, err := analyzeLayers(t, testImageDigest, layer)
+			assertUnsupportedWarning(t, result, err, extractionMalformedImage)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: still draining a %d-byte sparse hole after 10s", name, realSize)
+		}
 	}
-	var tail bytes.Buffer
-	writer := tar.NewWriter(&tail)
-	if err := writer.WriteHeader(&tar.Header{Name: "tmp/last", Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
-		t.Fatalf("WriteHeader: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	body.Write(tail.Bytes())
-	layer := filepath.Join(t.TempDir(), "sparse.tar")
-	if err := os.WriteFile(layer, body.Bytes(), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	err := analyzeWithLimits(t, layer, 3)
-	assertImageFailure(t, err, scannerworker.FailureClassFileLimitExceeded, false)
 }
 
 // declaredSizeHeader returns a header block of the given type whose size

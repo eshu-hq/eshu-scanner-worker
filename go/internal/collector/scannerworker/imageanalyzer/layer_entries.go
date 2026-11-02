@@ -31,6 +31,9 @@ func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) er
 		return fmt.Errorf("%w: layer file budget exceeded", errFileLimitExceeded)
 	}
 	r.filesSeen += cost
+	if isSparse(header) {
+		return fmt.Errorf("%w: sparse layer entry", errUnsupportedTarget)
+	}
 	if len(header.Name) > maxLayerEntryNameBytes {
 		return fmt.Errorf("%w: layer entry name too long", errInputLimitExceeded)
 	}
