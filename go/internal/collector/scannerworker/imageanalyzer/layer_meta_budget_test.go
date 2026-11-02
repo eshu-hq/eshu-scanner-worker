@@ -424,7 +424,7 @@ func TestTrackedFileFollowsTheFileOffset(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	tracked := &trackedFile{file: file}
+	tracked := &trackedFile{ctx: context.Background(), file: file}
 	buf := make([]byte, 100)
 	if _, err := tracked.Read(buf); err != nil {
 		t.Fatalf("Read: %v", err)

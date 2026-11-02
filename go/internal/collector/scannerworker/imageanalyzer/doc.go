@@ -12,4 +12,16 @@
 // identity, or supported analyzer capability is missing. Registry access,
 // advisory matching, vulnerability finding admission, and graph truth stay
 // with their owning packages.
+//
+// OCI layer reads are bounded three ways: every tar entry, and every 512-byte
+// block of PAX or GNU long-name records folded into one, counts against
+// MaxFiles (a gzip record chain is cut while it streams); entry names are
+// capped at 4096 bytes; and the decompressed bytes of gzip layers (skipped
+// entry data included) count against a target-wide budget of 8x MaxInputBytes
+// (32 GiB on the 4 GiB image default), checked together with the context on
+// every read of the compressed and decompressed streams. The compressed layer
+// bytes and the evidence file contents count against MaxInputBytes itself. A
+// decompressed-byte overrun fails terminal with input_limit_exceeded, and only
+// that failure carries inflated_bytes, budget_bytes, and compressed_bytes on
+// the component stderr line.
 package imageanalyzer

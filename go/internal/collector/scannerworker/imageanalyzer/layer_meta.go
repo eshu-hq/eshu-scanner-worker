@@ -5,7 +5,8 @@ package imageanalyzer
 
 import (
 	"archive/tar"
-	"io"
+	"context"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -17,12 +18,29 @@ const tarBlockBytes = 512
 // system call per query. tar.Reader skips entry data by seeking when its
 // source is an io.Seeker, so the wrapper keeps that path and records each
 // result.
+//
+// It also checks the context on every read, as inflateGuard does for gzip: an
+// evidence body is buffered whole by io.ReadAll and a record chain is consumed
+// inside one Next call, so without a check a cancelled claim would wait for
+// the entire read. The first failure is sticky; readLayer reports it because
+// tar and io.ReadAll replace read errors with their own.
 type trackedFile struct {
+	ctx  context.Context
 	file *os.File
 	pos  int64
+	err  error
 }
 
+func (f *trackedFile) failure() error { return f.err }
+
 func (f *trackedFile) Read(p []byte) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	if err := f.ctx.Err(); err != nil {
+		f.err = fmt.Errorf("%w: context canceled", errSourceUnavailable)
+		return 0, f.err
+	}
 	n, err := f.file.Read(p)
 	f.pos += int64(n)
 	return n, err
@@ -36,20 +54,6 @@ func (f *trackedFile) Seek(offset int64, whence int) (int64, error) {
 	return pos, err
 }
 
-// layerCounter counts the bytes the tar reader pulls from a decompressed
-// stream. An uncompressed layer reports its file offset instead, so tar keeps
-// skipping entry data by seek.
-type layerCounter struct {
-	src io.Reader
-	n   int64
-}
-
-func (c *layerCounter) Read(p []byte) (int, error) {
-	n, err := c.src.Read(p)
-	c.n += int64(n)
-	return n, err
-}
-
 // metaMeter measures the PAX and GNU long-name records tar.Reader folds into
 // the next header. Next returns only the real header, so the records are
 // invisible to handleEntry; the stream position shows them. Between two
@@ -59,10 +63,38 @@ type metaMeter struct {
 	pos      func() int64
 	last     int64
 	prevBody int64
+	// limit is the stream position past which the next header cannot arrive
+	// inside the file budget: the previous body, then one block per
+	// remaining unit plus the header block. Zero means no limit.
+	limit int64
 }
 
-func newMetaMeter(pos func() int64) metaMeter {
-	return metaMeter{pos: pos, last: pos()}
+func newMetaMeter(pos func() int64, remaining int64) metaMeter {
+	m := metaMeter{pos: pos, last: pos()}
+	m.arm(remaining)
+	return m
+}
+
+// arm sets limit for the next Next call, given the file-budget units left. A
+// chain of records longer than that cannot fit the budget, so the decompressed
+// stream stops it while it streams instead of after it has all been read.
+func (m *metaMeter) arm(remaining int64) {
+	if m.pos == nil {
+		return
+	}
+	if remaining < 0 {
+		remaining = 0
+	}
+	if m.prevBody > math.MaxInt64-m.last {
+		m.limit = math.MaxInt64
+		return
+	}
+	room := m.last + m.prevBody
+	if remaining > (math.MaxInt64-room)/tarBlockBytes-2 {
+		m.limit = math.MaxInt64
+		return
+	}
+	m.limit = room + tarBlockBytes*(remaining+2)
 }
 
 // blocks returns how many 512-byte record blocks preceded header h. A zero
@@ -71,6 +103,10 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 	if m.pos == nil {
 		return 0
 	}
+	// The header is in; the stream limit guarded only the span that found
+	// it. readLayer arms the next one after the entry, so the body read in between
+	// is free.
+	m.limit = 0
 	cur := m.pos()
 	meta := cur - m.last - m.prevBody - tarBlockBytes
 	m.last = cur

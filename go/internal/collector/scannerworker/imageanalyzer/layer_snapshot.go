@@ -32,6 +32,9 @@ const (
 
 type layerSnapshotReader struct {
 	remainingBytes  int64
+	inflatedBytes   int64
+	compressedBytes int64
+	maxInflated     int64
 	maxFiles        int64
 	filesSeen       int64
 	peakBytes       int64
@@ -41,18 +44,23 @@ type layerSnapshotReader struct {
 	meter           metaMeter
 }
 
+func newLayerSnapshotReader(limits scannerworker.ResourceLimits) *layerSnapshotReader {
+	return &layerSnapshotReader{
+		remainingBytes:  limits.MaxInputBytes,
+		maxFiles:        limits.MaxFiles,
+		maxInflated:     inflateBudget(limits.MaxInputBytes),
+		startCPUSeconds: currentUserCPUSeconds(),
+		files:           make(map[string][]byte, layerRegularFiles),
+		oversizedRPM:    make(map[string]bool),
+	}
+}
+
 func readLayerSnapshot(
 	ctx context.Context,
 	target TargetConfig,
 	limits scannerworker.ResourceLimits,
 ) (Snapshot, scannerworker.ResourceUsage, error) {
-	reader := &layerSnapshotReader{
-		remainingBytes:  limits.MaxInputBytes,
-		maxFiles:        limits.MaxFiles,
-		startCPUSeconds: currentUserCPUSeconds(),
-		files:           make(map[string][]byte, layerRegularFiles),
-		oversizedRPM:    make(map[string]bool),
-	}
+	reader := newLayerSnapshotReader(limits)
 	for _, layerPath := range target.LayerPaths {
 		if err := reader.readLayer(ctx, layerPath); err != nil {
 			if errors.Is(err, errUnsupportedTarget) {
@@ -152,17 +160,27 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 		return fmt.Errorf("%w: layer byte budget exceeded", errInputLimitExceeded)
 	}
 	r.remainingBytes -= info.Size()
+	r.compressedBytes += info.Size()
 	if info.Size() > r.peakBytes {
 		r.peakBytes = info.Size()
 	}
-	tarReader, closeFn, err := r.newLayerTarReader(file)
+	tarReader, stream, closeFn, err := r.newLayerTarReader(ctx, file)
 	if err != nil {
+		if errors.Is(err, errSourceUnavailable) {
+			return err
+		}
 		return fmt.Errorf("%w: unsupported layer archive", errUnsupportedTarget)
 	}
 	defer closeFn()
 	for {
 		header, err := tarReader.Next()
+		if failure := stream.failure(); failure != nil {
+			return failure
+		}
 		if errors.Is(err, io.EOF) {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("%w: context canceled", errSourceUnavailable)
+			}
 			return r.chargeTrailing()
 		}
 		if err != nil {
@@ -172,30 +190,39 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 			return fmt.Errorf("%w: context canceled", errSourceUnavailable)
 		}
 		if err := r.handleEntry(header, tarReader); err != nil {
+			if failure := stream.failure(); failure != nil {
+				return failure
+			}
 			return err
 		}
+		r.meter.arm(r.maxFiles - r.filesSeen)
 	}
 }
 
 // newLayerTarReader opens the layer as gzip when it parses as gzip and as a
-// plain tar otherwise, and points the record meter at the matching stream
-// position.
-func (r *layerSnapshotReader) newLayerTarReader(file *os.File) (*tar.Reader, func(), error) {
+// plain tar otherwise. A gzip layer is read through an inflateGuard. A plain
+// tar inflates nothing, so its bytes stay charged once as the layer size; it is
+// read through a trackedFile, which keeps seek-skipping and checks the context
+// on every read.
+func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.File) (*tar.Reader, streamFailure, func(), error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, func() {}, err
+		return nil, nil, func() {}, err
 	}
-	gzipReader, err := gzip.NewReader(file)
+	gzipReader, err := gzip.NewReader(ctxReader{ctx: ctx, src: file})
 	if err == nil {
-		counter := &layerCounter{src: gzipReader}
-		r.meter = newMetaMeter(func() int64 { return counter.n })
-		return tar.NewReader(counter), func() { _ = gzipReader.Close() }, nil
+		guard := &inflateGuard{ctx: ctx, src: gzipReader, budget: r}
+		r.meter = newMetaMeter(func() int64 { return r.inflatedBytes }, r.maxFiles-r.filesSeen)
+		return tar.NewReader(guard), guard, func() { _ = gzipReader.Close() }, nil
+	}
+	if errors.Is(err, errSourceUnavailable) {
+		return nil, nil, func() {}, err
 	}
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
-		return nil, func() {}, seekErr
+		return nil, nil, func() {}, seekErr
 	}
-	tracked := &trackedFile{file: file}
-	r.meter = newMetaMeter(func() int64 { return tracked.pos })
-	return tar.NewReader(tracked), func() {}, nil
+	tracked := &trackedFile{ctx: ctx, file: file}
+	r.meter = newMetaMeter(func() int64 { return tracked.pos }, r.maxFiles-r.filesSeen)
+	return tar.NewReader(tracked), tracked, func() {}, nil
 }
 
 func (r layerSnapshotReader) usage() scannerworker.ResourceUsage {

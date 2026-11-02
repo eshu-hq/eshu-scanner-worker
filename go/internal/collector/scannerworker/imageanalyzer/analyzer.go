@@ -301,6 +301,10 @@ func analyzerFailure(err error, usage scannerworker.ResourceUsage) error {
 	case errors.Is(err, errSourceUnavailable):
 		return scannerworker.NewRetryableAnalyzerFailure(scannerworker.FailureClassSourceUnavailable, usage, err)
 	case errors.Is(err, errInputLimitExceeded):
+		var budget inflateBudgetError
+		if errors.As(err, &budget) {
+			return scannerworker.NewInputLimitFailure(usage, budget.Detail, err)
+		}
 		return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassInputLimitExceeded, usage, err)
 	case errors.Is(err, errFileLimitExceeded):
 		return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassFileLimitExceeded, usage, err)
