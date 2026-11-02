@@ -155,28 +155,45 @@ func TestRunnerSilentCleanOutputFailsTerminal(t *testing.T) {
 	}
 }
 
-// TestRunnerNeverEmitsEmptySourceURI proves a fact whose source_ref.uri is
-// empty (no source_uri configured, or one the sanitizer had to drop) fails
-// the claim terminal instead of shipping a page the host validator rejects.
-// A registry host:port digest ref is kept and completes.
+// TestRunnerNeverEmitsEmptySourceURI proves no fact ships with an empty
+// source_ref.uri. A target whose source_uri is missing or sanitizes to empty
+// is a bad config, rejected at decode time for both rootfs analyzers. A
+// snapshot that supplies a credential URI at run time still fails terminal
+// at the emit backstop. A registry host:port digest ref is kept and
+// completes.
 func TestRunnerNeverEmitsEmptySourceURI(t *testing.T) {
 	t.Parallel()
 
 	root := parityRootFS(t, 2)
-	claim := testClaim(IDOSRuntime, testImageScopeID, "scanner-worker:generation-test")
-	for name, uri := range map[string]string{"absent": "", "credential dropped": "svc:user:secret/x@h.internal"} {
-		config := osruntimeConfig(root, 0)
-		target := config["targets"].([]any)[0].(map[string]any)
-		target["source_uri"] = uri
-		page, _ := runRaw(t, IDOSRuntime, testRequest(t, claim, config))
-		if page.State != sdkcollector.ResultTerminal || page.Statuses[0].FailureClass != "component_invalid_output" || len(page.Facts) != 0 {
-			t.Fatalf("%s: state=%q statuses=%+v facts=%d, want terminal component_invalid_output", name, page.State, page.Statuses, len(page.Facts))
+	for _, id := range []string{IDOSRuntime, IDImage} {
+		claim := testClaim(id, testImageScopeID, "scanner-worker:generation-test")
+		for name, uri := range map[string]string{"absent": "", "credential dropped": "svc:user:secret/x@h.internal"} {
+			config := osruntimeConfig(root, 0)
+			target := config["targets"].([]any)[0].(map[string]any)
+			target["source_uri"] = uri
+			if uri == "" {
+				delete(target, "source_uri")
+			}
+			page := runTerminal(t, id, testRequest(t, claim, config), "component_bad_config")
+			if page.Claim.WorkItemID != claim.WorkItemID {
+				t.Fatalf("%s %s: claim not echoed", id, name)
+			}
 		}
+	}
+
+	claim := testClaim(IDOSRuntime, testImageScopeID, "scanner-worker:generation-test")
+	snapshot := osruntime.Snapshot{
+		Distro: "alpine", DistroVersion: "3.19.1", PackageManager: "apk",
+		InstalledDB: []byte("P:a\nV:1-r0\nA:x86_64\n\n"), SourceURI: "svc:user:secret/x@h.internal",
+	}
+	page, _ := runWithSnapshots(t, testRequest(t, claim, osruntimeConfig(root, 0)), fixedSnapshot{snapshot: snapshot})
+	if page.State != sdkcollector.ResultTerminal || page.Statuses[0].FailureClass != "component_invalid_output" || len(page.Facts) != 0 {
+		t.Fatalf("snapshot credential URI: state=%q statuses=%+v facts=%d, want terminal component_invalid_output", page.State, page.Statuses, len(page.Facts))
 	}
 	config := osruntimeConfig(root, 0)
 	ref := "localhost:5000/app@sha256:" + strings.Repeat("a", 64)
 	config["targets"].([]any)[0].(map[string]any)["source_uri"] = ref
-	page, _ := runRaw(t, IDOSRuntime, testRequest(t, claim, config))
+	page, _ = runRaw(t, IDOSRuntime, testRequest(t, claim, config))
 	if page.State != sdkcollector.ResultComplete || len(page.Facts) == 0 {
 		t.Fatalf("registry ref: state=%q facts=%d, want complete", page.State, len(page.Facts))
 	}
@@ -195,4 +212,11 @@ func TestRunnerNeverEmitsEmptySourceURI(t *testing.T) {
 	if _, err := validator.ValidateResult(page); err != nil {
 		t.Fatalf("ValidateResult(registry ref page) error = %v", err)
 	}
+}
+
+// fixedSnapshot returns one fixed snapshot.
+type fixedSnapshot struct{ snapshot osruntime.Snapshot }
+
+func (p fixedSnapshot) Snapshot(context.Context, osruntime.TargetConfig, scannerworker.ResourceLimits) (osruntime.Snapshot, scannerworker.ResourceUsage, error) {
+	return p.snapshot, scannerworker.ResourceUsage{}, nil
 }

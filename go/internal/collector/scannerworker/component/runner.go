@@ -16,6 +16,7 @@ import (
 
 	sdkcollector "github.com/eshu-hq/eshu-sdk/collector"
 
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
@@ -150,8 +151,12 @@ func (r Runner) Run(ctx context.Context) error {
 	}
 	executor, err := buildAnalyzer(analyzer, req.Claim, config, observedAt, r.snapshots, r.inventory)
 	if err != nil {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_failed")
-		return r.emitTerminal(req.Claim, observedAt, "component_failed")
+		class := "component_failed"
+		if errors.Is(err, errBadTargetConfig) {
+			class = "component_bad_config"
+		}
+		r.log(analyzer, "terminal", 0, 0, 0, class)
+		return r.emitTerminal(req.Claim, observedAt, class)
 	}
 	bound, err := pageBound(config.PageBoundBytes)
 	if err != nil {
@@ -309,7 +314,9 @@ func claimInput(claim sdkcollector.Claim, config Config, analyzer scannerworker.
 // keeps the analyzer default.
 //
 // A nil provider or inventory keeps the analyzer default; only the parity
-// tests set them.
+// tests set them. A rootfs target whose source_uri is missing or sanitizes
+// to empty is a bad config (errBadTargetConfig): every fact needs a
+// non-empty source_ref.uri.
 func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim, config Config, now time.Time, provider osruntime.SnapshotProvider, inventory sbomgenerator.Source) (scannerworker.Analyzer, error) {
 	switch analyzer {
 	case scannerworker.AnalyzerSBOMGeneration:
@@ -330,6 +337,11 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 		if err := decodeTargets(config.Targets, &targets); err != nil {
 			return nil, err
 		}
+		for _, target := range targets {
+			if err := requireSourceURI(target.SourceURI); err != nil {
+				return nil, err
+			}
+		}
 		return imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{
 			CollectorInstanceID: claim.InstanceID,
 			Targets:             targets,
@@ -341,6 +353,11 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 		if err := decodeTargets(config.Targets, &targets); err != nil {
 			return nil, err
 		}
+		for _, target := range targets {
+			if err := requireSourceURI(target.SourceURI); err != nil {
+				return nil, err
+			}
+		}
 		return osruntime.NewAnalyzer(osruntime.AnalyzerConfig{
 			CollectorInstanceID: claim.InstanceID,
 			Targets:             targets,
@@ -350,6 +367,21 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 	default:
 		return nil, fmt.Errorf("no component analyzer for %q", analyzer)
 	}
+}
+
+// errBadTargetConfig marks an operator target the component can never serve,
+// mapped to the component_bad_config terminal class.
+var errBadTargetConfig = errors.New("bad component target config")
+
+// requireSourceURI rejects a target source_uri that is missing or that the
+// fact sanitizer would drop (for example, one carrying a credential), so the
+// defect surfaces as bad config before any analysis instead of as an empty
+// source_ref.uri. The value is never echoed.
+func requireSourceURI(raw string) error {
+	if ospackagevulnerability.SanitizeURL(raw) == "" {
+		return fmt.Errorf("%w: source_uri is missing or not a credential-free URI", errBadTargetConfig)
+	}
+	return nil
 }
 
 // decodeTargets decodes raw target documents strictly into the

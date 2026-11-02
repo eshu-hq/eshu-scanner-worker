@@ -56,7 +56,7 @@ func TestRunnerUndecodableTargetsFailTerminal(t *testing.T) {
 	for name, targets := range map[string][]any{
 		"wrong type":    {42},
 		"unknown field": {map[string]any{"scope_id": testImageScopeID, "rootfs_path": "/r", "surprise": true}},
-		"no rootfs":     {map[string]any{"scope_id": testImageScopeID}},
+		"no rootfs":     {map[string]any{"scope_id": testImageScopeID, "source_uri": "oci://registry.example/t@sha256:deadbeef"}},
 	} {
 		config := map[string]any{"targets": targets, "acceptance_unit_id": testImageAcceptUID}
 		page := runTerminal(t, IDOSRuntime, testRequest(t, claim, config), "component_failed")
