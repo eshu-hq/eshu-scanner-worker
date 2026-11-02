@@ -123,8 +123,9 @@ Component lane, first slice (os_package_extraction):
   bytes of gzip layers at 8x `MaxInputBytes` per target and checks the
   context on every read; applies OCI whiteout, opaque-marker, and replacement
   semantics to lower layers only; and rejects sparse entries as
-  `unsupported_target`, so any sparse entry makes the whole image report
-  unsupported evidence. A decompressed-byte overrun fails terminal
+  `unsupported_target` (the OCI image-spec says sparse files SHOULD NOT be
+  used in a layer), so any sparse entry makes the whole image report
+  unsupported evidence with no package facts. A decompressed-byte overrun fails terminal
   `input_limit_exceeded`, and only that failure carries `inflated_bytes`,
   `budget_bytes`, and `compressed_bytes` on the component stderr line.
 
