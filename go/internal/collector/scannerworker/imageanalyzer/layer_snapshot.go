@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime/metrics"
 	"strings"
 
@@ -28,8 +27,6 @@ const (
 	rpmSQLiteLegacyPath = "var/lib/rpm/rpmdb.sqlite"
 	rpmNDBPath          = "var/lib/rpm/Packages.db"
 	rpmBDBPath          = "var/lib/rpm/Packages"
-	whiteoutPrefix      = ".wh."
-	opaqueWhiteout      = ".wh..wh..opq"
 	layerRegularFiles   = int64(4)
 )
 
@@ -41,8 +38,7 @@ type layerSnapshotReader struct {
 	startCPUSeconds float64
 	files           map[string][]byte
 	oversizedRPM    map[string]bool
-	deleted         map[string]struct{}
-	opaqueDirs      map[string]struct{}
+	meter           metaMeter
 }
 
 func readLayerSnapshot(
@@ -56,8 +52,6 @@ func readLayerSnapshot(
 		startCPUSeconds: currentUserCPUSeconds(),
 		files:           make(map[string][]byte, layerRegularFiles),
 		oversizedRPM:    make(map[string]bool),
-		deleted:         make(map[string]struct{}),
-		opaqueDirs:      make(map[string]struct{}),
 	}
 	for _, layerPath := range target.LayerPaths {
 		if err := reader.readLayer(ctx, layerPath); err != nil {
@@ -161,7 +155,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	if info.Size() > r.peakBytes {
 		r.peakBytes = info.Size()
 	}
-	tarReader, closeFn, err := newLayerTarReader(file)
+	tarReader, closeFn, err := r.newLayerTarReader(file)
 	if err != nil {
 		return fmt.Errorf("%w: unsupported layer archive", errUnsupportedTarget)
 	}
@@ -169,7 +163,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return r.chargeTrailing()
 		}
 		if err != nil {
 			return fmt.Errorf("%w: read layer archive", errUnsupportedTarget)
@@ -183,83 +177,25 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	}
 }
 
-func newLayerTarReader(file *os.File) (*tar.Reader, func(), error) {
+// newLayerTarReader opens the layer as gzip when it parses as gzip and as a
+// plain tar otherwise, and points the record meter at the matching stream
+// position.
+func (r *layerSnapshotReader) newLayerTarReader(file *os.File) (*tar.Reader, func(), error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, func() {}, err
 	}
 	gzipReader, err := gzip.NewReader(file)
 	if err == nil {
-		return tar.NewReader(gzipReader), func() { _ = gzipReader.Close() }, nil
+		counter := &layerCounter{src: gzipReader}
+		r.meter = newMetaMeter(func() int64 { return counter.n })
+		return tar.NewReader(counter), func() { _ = gzipReader.Close() }, nil
 	}
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 		return nil, func() {}, seekErr
 	}
-	return tar.NewReader(file), func() {}, nil
-}
-
-func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) error {
-	name := cleanLayerName(header.Name)
-	if name == "" {
-		return nil
-	}
-	if base := filepath.Base(name); strings.HasPrefix(base, whiteoutPrefix) {
-		r.applyWhiteout(name)
-		return nil
-	}
-	if header.Typeflag != tar.TypeReg {
-		return nil
-	}
-	if r.filesSeen >= r.maxFiles {
-		return fmt.Errorf("%w: layer file budget exceeded", errFileLimitExceeded)
-	}
-	r.filesSeen++
-	if !isPackageEvidencePath(name) {
-		return nil
-	}
-	if isRPMDatabasePath(name) && header.Size > ospackagevulnerability.RPMDatabaseByteLimit {
-		r.files[name] = nil
-		r.oversizedRPM[name] = true
-		delete(r.deleted, name)
-		return nil
-	}
-	if header.Size > r.remainingBytes {
-		return fmt.Errorf("%w: layer metadata byte budget exceeded", errInputLimitExceeded)
-	}
-	content, err := io.ReadAll(io.LimitReader(body, header.Size+1))
-	if err != nil {
-		return fmt.Errorf("%w: read layer metadata", errTargetUnavailable)
-	}
-	if int64(len(content)) != header.Size {
-		return fmt.Errorf("%w: truncated layer metadata", errTargetUnavailable)
-	}
-	r.remainingBytes -= int64(len(content))
-	if int64(len(content)) > r.peakBytes {
-		r.peakBytes = int64(len(content))
-	}
-	r.files[name] = content
-	delete(r.oversizedRPM, name)
-	delete(r.deleted, name)
-	return nil
-}
-
-func (r *layerSnapshotReader) applyWhiteout(name string) {
-	dir := filepath.Dir(name)
-	base := filepath.Base(name)
-	if base == opaqueWhiteout {
-		cleanDir := filepath.ToSlash(filepath.Clean(dir))
-		r.opaqueDirs[cleanDir] = struct{}{}
-		for existing := range r.files {
-			if filepath.Dir(existing) == cleanDir {
-				delete(r.files, existing)
-				delete(r.oversizedRPM, existing)
-			}
-		}
-		return
-	}
-	target := filepath.ToSlash(filepath.Join(dir, strings.TrimPrefix(base, whiteoutPrefix)))
-	delete(r.files, target)
-	delete(r.oversizedRPM, target)
-	r.deleted[target] = struct{}{}
+	tracked := &trackedFile{file: file}
+	r.meter = newMetaMeter(func() int64 { return tracked.pos })
+	return tar.NewReader(tracked), func() {}, nil
 }
 
 func (r layerSnapshotReader) usage() scannerworker.ResourceUsage {
@@ -268,14 +204,6 @@ func (r layerSnapshotReader) usage() scannerworker.ResourceUsage {
 		cpuSeconds = 0
 	}
 	return scannerworker.ResourceUsage{CPUSeconds: cpuSeconds, PeakMemoryBytes: r.peakBytes}
-}
-
-func cleanLayerName(name string) string {
-	cleaned := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(name), "/")))
-	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return ""
-	}
-	return cleaned
 }
 
 func isPackageEvidencePath(name string) bool {

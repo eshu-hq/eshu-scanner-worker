@@ -117,8 +117,6 @@ Component lane, first slice (os_package_extraction):
   `osruntime.json` and `image.json` parity goldens changed only in that
   field (`testdata/scanner-parity/PROVENANCE.md`).
 - Known defects (pre-existing in the eshu source, behavior unchanged here):
-  - eshu-hq/eshu-scanner-worker#34: layer whiteout and non-regular entries
-    skip the file budget.
   - eshu-hq/eshu-scanner-worker#35: no decompressed-byte budget or
     cancellation inside a long layer entry.
   - eshu-hq/eshu-scanner-worker#36: layer whiteouts and opaque markers do
