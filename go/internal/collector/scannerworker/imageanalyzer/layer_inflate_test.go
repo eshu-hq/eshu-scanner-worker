@@ -92,7 +92,37 @@ func TestLayerInflateBudgetStopsLargeSkippedEntry(t *testing.T) {
 	if reader.inflatedBytes > budget {
 		t.Fatalf("inflatedBytes = %d, want at most the %d budget", reader.inflatedBytes, budget)
 	}
-	assertImageFailure(t, analyzerFailure(err, reader.usage()), scannerworker.FailureClassInputLimitExceeded, false)
+	failure := analyzerFailure(err, reader.usage())
+	assertImageFailure(t, failure, scannerworker.FailureClassInputLimitExceeded, false)
+	var typed scannerworker.AnalyzerFailure
+	if !errors.As(failure, &typed) {
+		t.Fatalf("analyzerFailure() = %T, want AnalyzerFailure", failure)
+	}
+	detail, ok := typed.InputLimit()
+	if !ok || detail.BudgetBytes != budget || detail.CompressedBytes != reader.compressedBytes || detail.InflatedBytes <= budget {
+		t.Fatalf("InputLimit() = %+v, %t, want budget %d, compressed %d, and inflated past the budget", detail, ok, budget, reader.compressedBytes)
+	}
+}
+
+// TestLayerMetadataBudgetErrorCarriesNoInflateDetail proves the figures stay
+// scoped to the inflate guard: an evidence file over the byte budget is an
+// input-limit failure without them.
+func TestLayerMetadataBudgetErrorCarriesNoInflateDetail(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease + strings.Repeat("#", 64*1024)})
+	reader := newLayerSnapshotReader(inflateLimits(16 * 1024))
+	err := reader.readLayer(context.Background(), layer)
+	if !errors.Is(err, errInputLimitExceeded) {
+		t.Fatalf("readLayer() error = %v, want input limit", err)
+	}
+	var typed scannerworker.AnalyzerFailure
+	if !errors.As(analyzerFailure(err, reader.usage()), &typed) {
+		t.Fatal("analyzerFailure() is not an AnalyzerFailure")
+	}
+	if detail, ok := typed.InputLimit(); ok {
+		t.Fatalf("InputLimit() = %+v, want no detail for the metadata budget", detail)
+	}
 }
 
 // TestLayerCancellationStopsInsideLongEntry reproduces the deadline half of

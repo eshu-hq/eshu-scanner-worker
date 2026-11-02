@@ -18,5 +18,7 @@
 // of gzip layers (skipped entry data included) count against a target-wide
 // budget of 8x MaxInputBytes (32 GiB on the 4 GiB image default), checked
 // together with the context on every read. The compressed layer bytes and the
-// evidence file contents count against MaxInputBytes itself.
+// evidence file contents count against MaxInputBytes itself. An overrun fails
+// terminal with input_limit_exceeded; the component stderr line carries
+// inflated_bytes, budget_bytes, and compressed_bytes.
 package imageanalyzer

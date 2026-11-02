@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 )
 
 // layerInflateBudgetMultiplier sizes the decompressed-byte budget as a
@@ -26,6 +28,24 @@ func inflateBudget(maxInputBytes int64) int64 {
 	}
 	return maxInputBytes * layerInflateBudgetMultiplier
 }
+
+// inflateBudgetError is the decompressed-byte budget overrun. It keeps the
+// figures typed so analyzerFailure can hand them to the component without
+// parsing text; Error renders the same struct, so the two cannot drift.
+type inflateBudgetError struct {
+	Detail scannerworker.InputLimitDetail
+}
+
+func (e inflateBudgetError) Error() string {
+	return fmt.Sprintf(
+		"%s: layer decompressed byte budget exceeded inflated_bytes=%d budget_bytes=%d compressed_bytes=%d",
+		errInputLimitExceeded, e.Detail.InflatedBytes, e.Detail.BudgetBytes, e.Detail.CompressedBytes,
+	)
+}
+
+// Unwrap lets errors.Is match errInputLimitExceeded, so the failure class
+// mapping is unchanged.
+func (e inflateBudgetError) Unwrap() error { return errInputLimitExceeded }
 
 // inflateGuard wraps the decompressed layer stream. It charges every byte the
 // tar reader pulls from the gzip stream, including entry data the reader
@@ -62,10 +82,11 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 	if int64(n) > room {
 		// Byte counts are privacy-safe and let an operator tell a bomb from a
 		// large legitimate image.
-		g.err = fmt.Errorf(
-			"%w: layer decompressed byte budget exceeded inflated_bytes=%d budget_bytes=%d compressed_bytes=%d",
-			errInputLimitExceeded, g.budget.inflatedBytes+int64(n), g.budget.maxInflated, g.budget.compressedBytes,
-		)
+		g.err = inflateBudgetError{Detail: scannerworker.InputLimitDetail{
+			InflatedBytes:   g.budget.inflatedBytes + int64(n),
+			BudgetBytes:     g.budget.maxInflated,
+			CompressedBytes: g.budget.compressedBytes,
+		}}
 		return 0, g.err
 	}
 	g.budget.inflatedBytes += int64(n)
