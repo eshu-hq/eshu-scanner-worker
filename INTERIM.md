@@ -67,8 +67,10 @@ Component lane, first slice (os_package_extraction):
   source commit; a tag must be on `main`, strictly newer than every other
   release, and not a rollback (`scripts/release-tag-guard.sh`). `SECURITY.md` has the version-pair
   table and the required repository hardening (a `v*` tag ruleset and a
-  protected `release` environment), which is not yet applied. The first
-  publish and the eshu re-pin have not happened.
+  protected `release` environment), which is not yet applied. Re-pin eshu
+  core only from a main-push run (`sha-<commit>` tag), never a tag run
+  (SECURITY.md, "Version Pairs"). The first publish and the eshu re-pin
+  have not happened.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

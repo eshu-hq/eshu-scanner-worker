@@ -106,6 +106,16 @@ same release.
 | `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.12` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
+Re-pin rule: take the digests from the `release` run of a **push to
+`main`**, never from a tag run. eshu core's
+`scripts/verify-scanner-digest-pins.sh` resolves
+`ghcr.io/eshu-hq/scanner-<name>:sha-<Scanner-Publish-SHA>` and requires each
+pin to equal that digest; only main pushes publish the `sha-<commit>` tag,
+and a tag run builds a different digest for the same commit because its
+`SCANNER_VERSION` is the tag. Set `Scanner-Publish-SHA` to that main commit
+and `Scanner-Publish-Repo` to `eshu-hq/eshu-scanner-worker`. The job summary
+of each run says which case it is.
+
 Until the re-pin lands, eshu core admits only the images built from eshu
 commit `a371d1e21f`.
 

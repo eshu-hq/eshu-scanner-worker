@@ -104,6 +104,23 @@ func TestReleaseWorkflowContract(t *testing.T) {
 		t.Error("release.yml must not match a signer identity by regular expression")
 	}
 
+	// eshu core's verify-scanner-digest-pins.sh resolves
+	// scanner-<name>:sha-<Scanner-Publish-SHA>, a tag only main pushes publish;
+	// a tag run builds a different digest for the same commit (its
+	// SCANNER_VERSION differs), so its summary must not invite a re-pin.
+	summary := strings.Index(text, "- name: Record the image digest")
+	nextStep := strings.Index(text, "- name: Generate build provenance attestation")
+	if summary < 0 || nextStep < summary {
+		t.Error("release.yml lost the digest summary step")
+	} else {
+		body := text[summary:nextStep]
+		for _, want := range []string{"REF_TYPE: ${{ github.ref_type }}", "Scanner-Publish-SHA", "Do not re-pin eshu core from a tag run"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("digest summary lost %q", want)
+			}
+		}
+	}
+
 	// The publishing job runs in the release environment so required
 	// reviewers apply once the repository setting exists.
 	if !strings.Contains(text, "    environment: release\n") {
