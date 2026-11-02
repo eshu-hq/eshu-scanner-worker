@@ -255,3 +255,57 @@ func TestLayerLongNamesStayWithinFileBudget(t *testing.T) {
 		}
 	}
 }
+
+// sparseHeader returns a header block for an old-GNU sparse entry that
+// declares realSize logical bytes and carries no data on the wire. Go reports
+// Header.Size as the logical size, so a meter that trusts Size would absorb
+// that many bytes of later records.
+func sparseHeader(t *testing.T, name string, realSize int64) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := tar.NewWriter(&out)
+	if err := writer.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	block := append([]byte(nil), out.Bytes()[:512]...)
+	block[156] = tar.TypeGNUSparse
+	copy(block[483:495], fmt.Sprintf("%011o\x00", realSize))
+	for i := 148; i < 156; i++ {
+		block[i] = ' '
+	}
+	sum := 0
+	for _, b := range block {
+		sum += int(b)
+	}
+	copy(block[148:156], fmt.Sprintf("%06o\x00 ", sum))
+	return block
+}
+
+// TestLayerSparseEntryCannotHideMetaRecords proves an entry whose logical
+// size exceeds its wire bytes cannot absorb a later record flood: the meter
+// drains a sparse body and measures from the real stream position.
+func TestLayerSparseEntryCannotHideMetaRecords(t *testing.T) {
+	t.Parallel()
+
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	var body bytes.Buffer
+	body.Write(sparseHeader(t, "var/cache/sparse", 100<<20))
+	for i := 0; i < 50000; i++ {
+		body.Write(record)
+	}
+	var tail bytes.Buffer
+	writer := tar.NewWriter(&tail)
+	if err := writer.WriteHeader(&tar.Header{Name: "tmp/last", Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	body.Write(tail.Bytes())
+	layer := filepath.Join(t.TempDir(), "sparse.tar")
+	if err := os.WriteFile(layer, body.Bytes(), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	err := analyzeWithLimits(t, layer, 3)
+	assertImageFailure(t, err, scannerworker.FailureClassFileLimitExceeded, false)
+}

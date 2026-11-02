@@ -174,6 +174,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 		if err := r.handleEntry(header, tarReader); err != nil {
 			return err
 		}
+		r.meter.settle(header, tarReader)
 	}
 }
 

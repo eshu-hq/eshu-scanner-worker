@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"io"
 	"math"
+	"strings"
 )
 
 const tarBlockBytes = 512
@@ -54,6 +55,31 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 		return 0
 	}
 	return meta / tarBlockBytes
+}
+
+// settle runs after handleEntry. A sparse entry declares its logical size in
+// Header.Size but carries fewer bytes on the wire, so subtracting the padded
+// Size would let it absorb later records. Drain the body and measure from the
+// real position instead; the padding left over is under one block.
+func (m *metaMeter) settle(h *tar.Header, body io.Reader) {
+	if m.pos == nil || !isSparse(h) {
+		return
+	}
+	_, _ = io.Copy(io.Discard, body)
+	m.last = m.pos()
+	m.prevBody = 0
+}
+
+func isSparse(h *tar.Header) bool {
+	if h.Typeflag == tar.TypeGNUSparse {
+		return true
+	}
+	for key := range h.PAXRecords {
+		if strings.HasPrefix(key, "GNU.sparse.") {
+			return true
+		}
+	}
+	return false
 }
 
 func paddedBody(size int64) int64 {
