@@ -5,7 +5,6 @@ package imageanalyzer
 
 import (
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -19,7 +18,6 @@ func newUnsupportedWarning(
 	input scannerworker.ClaimInput,
 	target TargetConfig,
 	snapshot Snapshot,
-	observedAt time.Time,
 ) (facts.Envelope, error) {
 	stableKey := facts.StableID(facts.ScannerWorkerWarningFactKind, map[string]any{
 		"analyzer":            string(input.Analyzer),
@@ -57,7 +55,7 @@ func newUnsupportedWarning(
 		CollectorKind:    string(scope.CollectorScannerWorker),
 		FencingToken:     input.FencingToken,
 		SourceConfidence: facts.SourceConfidenceReported,
-		ObservedAt:       observedAt,
+		ObservedAt:       input.ObservedAt.UTC(),
 		Payload:          payload,
 		SourceRef: facts.Ref{
 			SourceSystem: string(scope.CollectorScannerWorker),

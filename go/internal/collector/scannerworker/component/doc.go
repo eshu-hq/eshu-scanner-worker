@@ -8,5 +8,10 @@
 // page bound come from the published eshu-sdk/collector module.
 //
 // Port status (eshu-hq/eshu#8878 box 10): all three analyzers are ported
-// and proven byte-identical to the committed core parity goldens.
+// and proven byte-identical to the committed core parity goldens, except
+// that rootfs vulnerability.os_package facts carry the claim observation time
+// instead of the rootfs read time. Every fact of one claim carries the
+// ClaimInput.ObservedAt the first page minted and the page cursor carries, so
+// stateless per-page re-analysis cannot move page boundaries
+// (eshu-hq/eshu-scanner-worker#33).
 package component

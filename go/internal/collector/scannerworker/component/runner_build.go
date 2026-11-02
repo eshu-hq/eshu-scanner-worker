@@ -107,7 +107,6 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 			CollectorInstanceID: claim.InstanceID,
 			Targets:             targets,
 			Provider:            provider,
-			Now:                 func() time.Time { return now },
 		})
 	case scannerworker.AnalyzerOSPackageExtraction:
 		var targets []osruntime.TargetConfig
@@ -123,7 +122,6 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 			CollectorInstanceID: claim.InstanceID,
 			Targets:             targets,
 			Provider:            provider,
-			Now:                 func() time.Time { return now },
 		})
 	default:
 		return nil, fmt.Errorf("no component analyzer for %q", analyzer)

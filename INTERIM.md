@@ -19,7 +19,10 @@ Byte-identical relocations (zero semantic delta):
 - `go/internal/collector/ospackagevulnerability/`: `doc.go`, `distro.go`,
   `types.go`, `apk_parser.go`, `dpkg_parser.go`, `rpm_parser.go`, parser
   tests, text fixtures. `rpm_database.go` has since gained the RPM header
-  guards (#23, #26) and is ahead of the eshu copy.
+  guards (#23, #26) and is ahead of the eshu copy. `envelope.go` and
+  `types.go` are ahead of it too (#33): `EnvelopeContext.ObservedAt` is the
+  claim observation time and a zero value is an error, not a `time.Now`
+  stamp.
 
 Component lane, first slice (os_package_extraction):
 
@@ -38,7 +41,8 @@ Component lane, first slice (os_package_extraction):
 - `scannerworker/imageanalyzer/` (second slice): analyzer, layer and rootfs
   snapshots, analysis and warning facts. `AnalyzerConfig.Provider` is new
   (default `osruntime.LocalRootFSProvider`, the provider the in-tree code
-  hard-coded) so the parity tests can pin the captured snapshot time.
+  hard-coded); it is now the failure-injection seam for tests, not a clock
+  pin (see "Fact clock" below).
 - `scannerworker/sbomgenerator/` (third slice): analyzer, repository
   source, lockfile parsers, envelopes, warning aggregation; wired into the
   runner as sbom_generation.
@@ -94,9 +98,25 @@ Component lane, first slice (os_package_extraction):
   read a manifest swapped for a symlink to a regular file. The guard covers
   the final path component only; a parent directory swapped for a symlink
   after the walk is still followed. Reads stop one byte past the byte budget.
+- Fact clock (eshu-hq/eshu-scanner-worker#33, fixed here, a deliberate
+  contract delta from the eshu source): every fact of one claim carries
+  `ClaimInput.ObservedAt`, the claim observation time minted on page 0 and
+  carried in the page cursor. The rootfs `Snapshot` carries no clock
+  (`osruntime.Snapshot.ObservedAt` and `imageanalyzer.Snapshot.ObservedAt`
+  are removed, along with `AnalyzerConfig.Now` in both analyzers), and
+  `ospackagevulnerability.BuildEnvelopes` rejects a zero `ObservedAt`
+  instead of stamping `time.Now`. The runner's stderr record gains
+  `observed_at` next to the call clock `at`. Before this, each stateless
+  page call re-read the rootfs with a fresh wall-clock stamp whose
+  RFC 3339 trailing zeros changed fact sizes and moved page boundaries
+  (measured: 50,000 osruntime facts reassembled as 50,120, 960 lost and
+  1,080 duplicated; image rootfs 49,890, 1,100 lost and 990 duplicated).
+  Consequence: `vulnerability.os_package` `observed_at` moves from the
+  rootfs read time to the claim observation time, so the readiness scan
+  tier's `latest_observed_at` agrees with `scanner_worker.analysis`. The
+  `osruntime.json` and `image.json` parity goldens changed only in that
+  field (`testdata/scanner-parity/PROVENANCE.md`).
 - Known defects (pre-existing in the eshu source, behavior unchanged here):
-  - eshu-hq/eshu-scanner-worker#33: wall-clock snapshot time can shift page
-    boundaries between calls.
   - eshu-hq/eshu-scanner-worker#34: layer whiteout and non-regular entries
     skip the file budget.
   - eshu-hq/eshu-scanner-worker#35: no decompressed-byte budget or

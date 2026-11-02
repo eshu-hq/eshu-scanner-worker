@@ -88,6 +88,9 @@ func TestAnalyzerEmitsUnsupportedEvidenceForTagOnlyImageTarget(t *testing.T) {
 	if got, want := warning.Payload["reason"], "image_analyzer_unsupported_target"; got != want {
 		t.Fatalf("reason = %#v, want %q", got, want)
 	}
+	if !warning.ObservedAt.Equal(input.ObservedAt) {
+		t.Fatalf("warning observed_at = %v, want claim observation time %v", warning.ObservedAt, input.ObservedAt)
+	}
 	if got, want := warning.Payload["extraction_reason"], "missing_image_digest"; got != want {
 		t.Fatalf("extraction_reason = %#v, want %q", got, want)
 	}

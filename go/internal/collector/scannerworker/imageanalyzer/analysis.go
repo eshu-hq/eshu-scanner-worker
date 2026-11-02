@@ -5,7 +5,6 @@ package imageanalyzer
 
 import (
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -28,11 +27,7 @@ func newAnalysisFact(
 	snapshot Snapshot,
 	resultCount int,
 	factCount int,
-	observedAt time.Time,
 ) (facts.Envelope, error) {
-	if observedAt.IsZero() {
-		observedAt = input.ObservedAt.UTC()
-	}
 	stableKey := facts.StableID(facts.ScannerWorkerAnalysisFactKind, map[string]any{
 		"analyzer":            string(input.Analyzer),
 		"target_kind":         string(input.Target.Kind),
@@ -71,7 +66,7 @@ func newAnalysisFact(
 		CollectorKind:    string(scope.CollectorScannerWorker),
 		FencingToken:     input.FencingToken,
 		SourceConfidence: facts.SourceConfidenceReported,
-		ObservedAt:       observedAt,
+		ObservedAt:       input.ObservedAt.UTC(),
 		Payload:          payload,
 		SourceRef: facts.Ref{
 			SourceSystem: string(scope.CollectorScannerWorker),

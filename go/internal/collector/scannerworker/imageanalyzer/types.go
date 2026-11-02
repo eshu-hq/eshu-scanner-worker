@@ -6,7 +6,6 @@ package imageanalyzer
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
@@ -20,7 +19,6 @@ type AnalyzerConfig struct {
 	// osruntime.LocalRootFSProvider, the same default the in-tree analyzer
 	// hard-coded; layer-archive targets never use it.
 	Provider osruntime.SnapshotProvider
-	Now      func() time.Time
 }
 
 // TargetConfig maps one image scanner-worker scope to local image evidence.
@@ -67,7 +65,6 @@ type Snapshot struct {
 	ImageDigest         string
 	EvidenceSource      EvidenceSource
 	ExtractionReason    string
-	ObservedAt          time.Time
 }
 
 func (t TargetConfig) validate() (TargetConfig, error) {

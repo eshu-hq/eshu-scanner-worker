@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -27,7 +26,6 @@ func readRootFSUnsupportedSnapshot(
 	ctx context.Context,
 	target TargetConfig,
 	limits scannerworker.ResourceLimits,
-	now func() time.Time,
 ) (Snapshot, scannerworker.ResourceUsage, bool) {
 	reader := rootFSUnsupportedReader{
 		root:           target.RootFSPath,
@@ -63,7 +61,6 @@ func readRootFSUnsupportedSnapshot(
 		ImageDigest:        target.ImageDigest,
 		EvidenceSource:     EvidenceSourceRootFS,
 		ExtractionReason:   extractionUnsupported,
-		ObservedAt:         now().UTC(),
 	}, reader.usage(), true
 }
 

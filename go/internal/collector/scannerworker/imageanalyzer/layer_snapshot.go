@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime/metrics"
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -50,7 +49,6 @@ func readLayerSnapshot(
 	ctx context.Context,
 	target TargetConfig,
 	limits scannerworker.ResourceLimits,
-	now func() time.Time,
 ) (Snapshot, scannerworker.ResourceUsage, error) {
 	reader := &layerSnapshotReader{
 		remainingBytes:  limits.MaxInputBytes,
@@ -64,7 +62,7 @@ func readLayerSnapshot(
 	for _, layerPath := range target.LayerPaths {
 		if err := reader.readLayer(ctx, layerPath); err != nil {
 			if errors.Is(err, errUnsupportedTarget) {
-				return unsupportedLayerSnapshot(target, now, extractionMalformedImage), reader.usage(), err
+				return unsupportedLayerSnapshot(target, extractionMalformedImage), reader.usage(), err
 			}
 			return Snapshot{}, reader.usage(), err
 		}
@@ -84,7 +82,6 @@ func readLayerSnapshot(
 		ImageDigest:        target.ImageDigest,
 		EvidenceSource:     EvidenceSourceLayer,
 		ExtractionReason:   extractionUnsupported,
-		ObservedAt:         now().UTC(),
 	}
 	oversizedRPM := rpmLayerDatabaseTooLarge(reader.files, reader.oversizedRPM)
 	distro, manager, err := resolvePackageDatabase(target, fields, reader.files, oversizedRPM)
@@ -109,7 +106,7 @@ func readLayerSnapshot(
 	return snapshot, reader.usage(), nil
 }
 
-func unsupportedLayerSnapshot(target TargetConfig, now func() time.Time, reason string) Snapshot {
+func unsupportedLayerSnapshot(target TargetConfig, reason string) Snapshot {
 	return Snapshot{
 		Distro:             target.Distro,
 		DistroVersion:      target.DistroVersion,
@@ -123,7 +120,6 @@ func unsupportedLayerSnapshot(target TargetConfig, now func() time.Time, reason 
 		ImageDigest:        target.ImageDigest,
 		EvidenceSource:     EvidenceSourceLayer,
 		ExtractionReason:   reason,
-		ObservedAt:         now().UTC(),
 	}
 }
 
