@@ -11,9 +11,9 @@ name: release
 # workflow at the allowed ref and source commit. A version tag publishes
 # only when its commit is already on the protected main branch and it is a
 # strictly newer, non-rollback release (scripts/release-tag-guard.sh). These
-# in-workflow checks bind to the workflow file at the triggering ref, so a
-# person who can push a tag can also change them; the repository settings in
-# SECURITY.md ("Repository settings") close that gap.
+# in-workflow checks bind to the workflow file at the triggering ref; the
+# repository settings in SECURITY.md ("Repository settings") limit v* tags to
+# admins and make every run wait for the release environment's reviewer.
 on:
   push:
     branches:
@@ -37,9 +37,9 @@ jobs:
       fail-fast: false
       matrix:
         component: [image, sbom, osruntime]
-    # Required reviewers apply once the repository's release environment
-    # has them (SECURITY.md, "Repository settings"). A missing environment
-    # is created on first run without protection; it never fails the job.
+    # The release environment requires the maintainer's approval and admits
+    # only main and v* (SECURITY.md, "Repository settings"), so every run,
+    # including each main push, waits for that approval before building.
     environment: release
     permissions:
       contents: read

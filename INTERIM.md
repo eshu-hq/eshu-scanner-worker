@@ -65,12 +65,19 @@ Component lane, first slice (os_package_extraction):
   arm64 with SLSA provenance, cosign signature, and SBOM attestation, all
   verified in the job against the exact `release.yml@<ref>` identity and
   source commit; a tag must be on `main`, strictly newer than every other
-  release, and not a rollback (`scripts/release-tag-guard.sh`). `SECURITY.md` has the version-pair
-  table and the required repository hardening (a `v*` tag ruleset and a
-  protected `release` environment), which is not yet applied. Re-pin eshu
-  core only from a main-push run (`sha-<commit>` tag), never a tag run
-  (SECURITY.md, "Version Pairs"). The first publish and the eshu re-pin
-  have not happened.
+  release, and not a rollback (`scripts/release-tag-guard.sh`).
+  `SECURITY.md` has the version-pair table and the applied repository
+  settings: the `release-tags` ruleset (only admins create, update, or
+  delete `v*` tags), the `release` environment (maintainer approval; `main`
+  and `v*` only), and the `main-ci-complete` ruleset (pull request,
+  `ci-complete`, no force-push or deletion). Every publish, including each
+  main push, waits for the environment approval before its digests exist.
+  Re-pin eshu core only from an approved main-push run (`sha-<commit>` tag),
+  never a tag run (SECURITY.md, "Version Pairs"). The first publish and the
+  eshu re-pin have not happened. Owed before the first publish: the
+  `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` packages are linked to
+  eshu-hq/eshu today, so this repository needs write access to them (package
+  settings, "Manage Actions access") or its push fails.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

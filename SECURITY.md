@@ -71,25 +71,37 @@ After publishing, the job verifies the cosign signature and both attestations
 against the exact identity `release.yml@<triggering ref>`, the triggering
 ref, and the source commit, and rejects self-hosted runners.
 
-Limit: these checks live in the workflow file at the triggering ref. A person
-who can push a `v*` tag can push a tag whose `release.yml` skips them. Only the
-repository settings below close that gap.
+Limit: these checks live in the workflow file at the triggering ref, so a
+run's own `release.yml` decides whether they run. The repository settings
+below bound who can start such a run. Only repository administrators can
+push a `v*` tag, and every publish waits for the maintainer's approval in
+the `release` environment. A stolen maintainer token still passes both:
+it can push a tag and approve the run.
 
-### Repository settings (required hardening, not yet applied)
+### Repository settings
 
-- A tag ruleset that restricts creating, updating, and deleting `v*` tags to
-  repository administrators. It is also the only control for tag
-  immutability: the workflow cannot tell a deleted-and-re-pushed version tag
-  from a new one, so without the ruleset an existing version can be re-pushed
-  at a different commit.
-- A `release` environment with required reviewers and a deployment policy
-  limited to `main` and `v*` tags. The publishing job already runs in
-  `environment: release`; until the environment is configured, GitHub creates
-  it on first use with no protection.
-- `main` already requires `ci-complete` through the `main-ci-complete`
-  ruleset. That ruleset also needs a required pull-request review and must
-  block force-pushes and deletion: the tag gate trusts `main`'s history, so
-  a rewritten `main` would move what counts as merged.
+Applied and verified with `gh api` reads of the rulesets and the
+environment:
+
+- Tag ruleset `release-tags`: creating, updating, and deleting `v*` tags is
+  blocked for everyone except the repository admin role, which bypasses it.
+  A version tag is therefore immutable only for non-admins: the workflow
+  cannot tell a deleted-and-re-pushed tag from a new one, so an admin could
+  still move an existing version.
+- Environment `release`: one required reviewer (the maintainer; self-review
+  is allowed, because the repository has one maintainer) and deployment
+  policies that admit only the `main` branch and `v*` tags. Every publish,
+  including each push to `main`, pauses for this approval before any image
+  is built, so a main-push digest exists for a re-pin only after the run is
+  approved.
+- Branch ruleset `main-ci-complete`: `ci-complete` must pass, changes land
+  through a pull request (0 required approvals, review threads must be
+  resolved, stale reviews are dismissed on push), and force-pushes and
+  deletion of `main` are blocked, so the history the tag gate trusts cannot
+  be rewritten. It has no bypass actors.
+
+Owner decision, not applied: requiring one approving review on `main`. With
+a single maintainer, a one-approval rule would block every merge.
 
 CI runs `govulncheck` and `gosec` on every push to `main` and on the weekly
 schedule, `govulncheck` on pull requests that change `go.mod`, and `gosec`
@@ -109,8 +121,8 @@ same release.
 | `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.12` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
-Re-pin rule: take the digests from the `release` run of a **push to
-`main`**, never from a tag run. eshu core's
+Re-pin rule: take the digests from the approved `release` run of a **push
+to `main`**, never from a tag run. eshu core's
 `scripts/verify-scanner-digest-pins.sh` resolves
 `ghcr.io/eshu-hq/scanner-<name>:sha-<Scanner-Publish-SHA>` and requires each
 pin to equal that digest; only main pushes publish the `sha-<commit>` tag,
