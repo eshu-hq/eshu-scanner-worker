@@ -77,8 +77,17 @@ Component lane, first slice (os_package_extraction):
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
   rejection tests in `ospackagevulnerability`, `osruntime`, and
   `imageanalyzer`.
-- Known defect: wall-clock snapshot time can shift page boundaries between
-  calls (eshu-hq/eshu-scanner-worker#33).
+- Known defects (pre-existing in the eshu source, behavior unchanged here):
+  - eshu-hq/eshu-scanner-worker#33: wall-clock snapshot time can shift page
+    boundaries between calls.
+  - eshu-hq/eshu-scanner-worker#34: layer whiteout and non-regular entries
+    skip the file budget.
+  - eshu-hq/eshu-scanner-worker#35: no decompressed-byte budget or
+    cancellation inside a long layer entry.
+  - eshu-hq/eshu-scanner-worker#36: layer whiteouts and opaque markers do
+    not follow OCI semantics.
+  - eshu-hq/eshu-scanner-worker#37: SBOM repository files open by path
+    after the walk.
 
 Core-import replacements:
 

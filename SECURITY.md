@@ -59,10 +59,12 @@ These checks run in `release.yml` and fail the job before anything is built:
 - A tag's commit is on `main`: `scripts/release-tag-guard.sh` fetches it
   into the fully qualified `refs/remotes/origin/main` and checks ancestry
   there, so a tag or branch named `origin/main` cannot stand in for it.
-- A tag's version is strictly newer, by semantic version, than every other
-  release tag (a prerelease sorts before its release), and its commit is not
-  an ancestor of the latest release's commit. A newer version number cannot
-  publish older code.
+- A tag's version is strictly newer, by SemVer 2.0 precedence, than every
+  other release tag, and its commit is not a proper ancestor of the latest
+  release's commit. This stops a newer version number from publishing a
+  commit the latest release already contains. With merge commits, an older
+  main commit that is not an ancestor of the latest release's commit can
+  still pass.
 - A tag matches `component.Version`.
 
 After publishing, the job verifies the cosign signature and both attestations
@@ -85,8 +87,9 @@ repository settings below close that gap.
   `environment: release`; until the environment is configured, GitHub creates
   it on first use with no protection.
 - `main` already requires `ci-complete` through the `main-ci-complete`
-  ruleset. Adding a required pull-request review to that ruleset is
-  recommended, because a tag can only publish commits that reached `main`.
+  ruleset. That ruleset also needs a required pull-request review and must
+  block force-pushes and deletion: the tag gate trusts `main`'s history, so
+  a rewritten `main` would move what counts as merged.
 
 CI runs `govulncheck` and `gosec` on every push to `main` and on the weekly
 schedule, `govulncheck` on pull requests that change `go.mod`, and `gosec`

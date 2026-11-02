@@ -100,6 +100,11 @@ func TestReleaseTagGuard(t *testing.T) {
 		{name: "newer version rolled back to an ancestor of the latest release", existing: map[string]string{"v0.1.0": "m3"}, tag: "v0.2.0", at: "m2", allowed: false},
 		{name: "commit not on main", tag: "v0.1.0", at: "s1", allowed: false},
 		{name: "not a version tag", tag: "v1.2", at: "m3", allowed: false},
+		{name: "alphanumeric prerelease identifier above numeric", existing: map[string]string{"v1.0.0-alpha.1": "m2"}, tag: "v1.0.0-alpha.beta", at: "m3", allowed: true},
+		{name: "numeric prerelease identifier below alphanumeric", existing: map[string]string{"v1.0.0-alpha.beta": "m2"}, tag: "v1.0.0-alpha.1", at: "m3", allowed: false},
+		{name: "shorter prerelease below longer", existing: map[string]string{"v1.0.0-alpha.1": "m2"}, tag: "v1.0.0-alpha", at: "m3", allowed: false},
+		{name: "numeric prerelease compared numerically", existing: map[string]string{"v1.0.0-rc.9": "m2"}, tag: "v1.0.0-rc.10", at: "m3", allowed: true},
+		{name: "major compared numerically", existing: map[string]string{"v9.0.0": "m2"}, tag: "v10.0.0", at: "m3", allowed: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -124,5 +129,17 @@ func TestReleaseTagGuardIgnoresShadowingRefs(t *testing.T) {
 		if code, out := repo.guard("v0.1.0", "s1"); code == 0 {
 			t.Fatalf("%s named origin/main let a side-branch commit pass:\n%s", kind, out)
 		}
+	}
+}
+
+// TestReleaseTagGuardRejectsMalformedCommit proves TAG_COMMIT must be a full
+// 40-hex commit id before any git command runs.
+func TestReleaseTagGuardRejectsMalformedCommit(t *testing.T) {
+	t.Parallel()
+
+	repo := newGuardRepo(t, nil)
+	repo.commit["bad"] = "--upload-pack=touch /tmp/x"
+	if code, out := repo.guard("v0.1.0", "bad"); code == 0 || !strings.Contains(out, "TAG_COMMIT") {
+		t.Fatalf("malformed TAG_COMMIT exit=%d out=%q, want a TAG_COMMIT rejection", code, out)
 	}
 }
