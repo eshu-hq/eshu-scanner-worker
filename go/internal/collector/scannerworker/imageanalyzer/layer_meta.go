@@ -5,6 +5,8 @@ package imageanalyzer
 
 import (
 	"archive/tar"
+	"context"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -16,12 +18,29 @@ const tarBlockBytes = 512
 // system call per query. tar.Reader skips entry data by seeking when its
 // source is an io.Seeker, so the wrapper keeps that path and records each
 // result.
+//
+// It also checks the context on every read, as inflateGuard does for gzip: an
+// evidence body is buffered whole by io.ReadAll and a record chain is consumed
+// inside one Next call, so without a check a cancelled claim would wait for
+// the entire read. The first failure is sticky; readLayer reports it because
+// tar and io.ReadAll replace read errors with their own.
 type trackedFile struct {
+	ctx  context.Context
 	file *os.File
 	pos  int64
+	err  error
 }
 
+func (f *trackedFile) failure() error { return f.err }
+
 func (f *trackedFile) Read(p []byte) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	if err := f.ctx.Err(); err != nil {
+		f.err = fmt.Errorf("%w: context canceled", errSourceUnavailable)
+		return 0, f.err
+	}
 	n, err := f.file.Read(p)
 	f.pos += int64(n)
 	return n, err

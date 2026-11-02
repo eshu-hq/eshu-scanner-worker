@@ -164,7 +164,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	if info.Size() > r.peakBytes {
 		r.peakBytes = info.Size()
 	}
-	tarReader, guard, closeFn, err := r.newLayerTarReader(ctx, file)
+	tarReader, stream, closeFn, err := r.newLayerTarReader(ctx, file)
 	if err != nil {
 		if errors.Is(err, errSourceUnavailable) {
 			return err
@@ -174,10 +174,13 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	defer closeFn()
 	for {
 		header, err := tarReader.Next()
-		if guard != nil && guard.err != nil {
-			return guard.err
+		if failure := stream.failure(); failure != nil {
+			return failure
 		}
 		if errors.Is(err, io.EOF) {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("%w: context canceled", errSourceUnavailable)
+			}
 			return r.chargeTrailing()
 		}
 		if err != nil {
@@ -187,8 +190,8 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 			return fmt.Errorf("%w: context canceled", errSourceUnavailable)
 		}
 		if err := r.handleEntry(header, tarReader); err != nil {
-			if guard != nil && guard.err != nil {
-				return guard.err
+			if failure := stream.failure(); failure != nil {
+				return failure
 			}
 			return err
 		}
@@ -197,9 +200,11 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 }
 
 // newLayerTarReader opens the layer as gzip when it parses as gzip and as a
-// plain tar otherwise. A gzip layer is read through an inflateGuard; a plain
-// tar inflates nothing, so its bytes stay charged once as the layer size.
-func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.File) (*tar.Reader, *inflateGuard, func(), error) {
+// plain tar otherwise. A gzip layer is read through an inflateGuard. A plain
+// tar inflates nothing, so its bytes stay charged once as the layer size; it is
+// read through a trackedFile, which keeps seek-skipping and checks the context
+// on every read.
+func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.File) (*tar.Reader, streamFailure, func(), error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, nil, func() {}, err
 	}
@@ -215,9 +220,9 @@ func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.Fi
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 		return nil, nil, func() {}, seekErr
 	}
-	tracked := &trackedFile{file: file}
+	tracked := &trackedFile{ctx: ctx, file: file}
 	r.meter = newMetaMeter(func() int64 { return tracked.pos }, r.maxFiles-r.filesSeen)
-	return tar.NewReader(tracked), nil, func() {}, nil
+	return tar.NewReader(tracked), tracked, func() {}, nil
 }
 
 func (r layerSnapshotReader) usage() scannerworker.ResourceUsage {

@@ -48,6 +48,11 @@ func (e inflateBudgetError) Error() string {
 // mapping is unchanged.
 func (e inflateBudgetError) Unwrap() error { return errInputLimitExceeded }
 
+// streamFailure is implemented by the readers tar.Reader pulls from: the first
+// error each one raised, which readLayer reports in place of the error tar or
+// io.ReadAll returns for it.
+type streamFailure interface{ failure() error }
+
 // inflateGuard wraps the decompressed layer stream. It charges every byte the
 // tar reader pulls from the gzip stream, including entry data the reader
 // skips, against the target-wide decompressed-byte budget, and it checks the
@@ -61,6 +66,8 @@ type inflateGuard struct {
 	budget *layerSnapshotReader
 	err    error
 }
+
+func (g *inflateGuard) failure() error { return g.err }
 
 func (g *inflateGuard) Read(p []byte) (int, error) {
 	if g.err != nil {
