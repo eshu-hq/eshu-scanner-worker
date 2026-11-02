@@ -1,0 +1,6 @@
+.git
+.github
+.omc
+coverage.out
+*.md
+scripts

@@ -1,0 +1,221 @@
+name: release
+
+# Publishes the three scanner component images
+# (ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}) on every push to main and
+# on every pushed version tag. Nothing runs on a pull request, and nothing
+# here deploys or re-pins eshu core: a person copies each digest from the job
+# summary into the eshu re-pin PR (scannercomponent manifest pins plus
+# Scanner-Publish-Repo/SHA) and the chart seed.image values. Each image gets
+# SLSA build provenance, a keyless cosign signature, an SPDX SBOM attestation,
+# and a verification of all of them against this repository and this
+# workflow at the allowed ref and source commit. A version tag publishes
+# only when its commit is already on the protected main branch and it is a
+# strictly newer, non-rollback release (scripts/release-tag-guard.sh). These
+# in-workflow checks bind to the workflow file at the triggering ref; the
+# repository settings in SECURITY.md ("Repository settings") limit v* tags to
+# admins and make every run wait for the release environment's reviewer.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+concurrency:
+  group: image-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: publish scanner-${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [image, sbom, osruntime]
+    # The release environment requires the maintainer's approval and admits
+    # only main and v* (SECURITY.md, "Repository settings"), so every run,
+    # including each main push, waits for that approval before building.
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/scanner-${{ matrix.component }}
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Require an allowed release ref
+        env:
+          SOURCE_REF: ${{ github.ref }}
+        run: |
+          case "${SOURCE_REF}" in
+            refs/heads/main) ;;
+            refs/tags/v*)
+              if ! printf '%s' "${SOURCE_REF#refs/tags/}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+                echo "tag '${SOURCE_REF#refs/tags/}' is not vMAJOR.MINOR.PATCH[-prerelease]" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "ref '${SOURCE_REF}' is not refs/heads/main or a version tag" >&2
+              exit 1
+              ;;
+          esac
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The tag must be on refs/remotes/origin/main, strictly newer than every
+      # other release, and not a rollback to an ancestor of the latest
+      # release (scripts/release-tag-guard.sh, tested in release_guard_test.go).
+      - name: Require the tag to be on the protected main branch
+        if: github.ref_type == 'tag'
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          TAG_COMMIT: ${{ github.sha }}
+        run: bash scripts/release-tag-guard.sh
+      - name: Require the tag to match the manifest version
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' go/internal/collector/scannerworker/component/manifest.go)"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "component.Version is not MAJOR.MINOR.PATCH[-prerelease]" >&2
+            exit 1
+          fi
+          if [[ "${TAG_NAME}" != "v${version}" && "${TAG_NAME}" != "v${version}-"* ]]; then
+            echo "tag '${TAG_NAME}' does not match component.Version 'v${version}'" >&2
+            exit 1
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to the container registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract image metadata (tag events)
+        id: meta-tag
+        if: github.ref_type == 'tag'
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+      - name: Extract image metadata (main-branch pushes)
+        id: meta-branch
+        if: github.ref_type == 'branch'
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=main
+            type=sha,prefix=sha-,format=long
+      - name: Build and push the image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          target: scanner-${{ matrix.component }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            SCANNER_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          tags: |
+            ${{ steps.meta-tag.outputs.tags }}
+            ${{ steps.meta-branch.outputs.tags }}
+          labels: |
+            ${{ steps.meta-tag.outputs.labels }}
+            ${{ steps.meta-branch.outputs.labels }}
+      # eshu core's scripts/verify-scanner-digest-pins.sh resolves
+      # scanner-<name>:sha-<Scanner-Publish-SHA> and requires the pin to equal
+      # that digest. Only main pushes publish sha-<commit>, and a tag run's
+      # image differs for the same commit (SCANNER_VERSION is the tag), so
+      # only a main-push digest may be re-pinned.
+      - name: Record the image digest
+        env:
+          COMPONENT: ${{ matrix.component }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          {
+            echo "## scanner-${COMPONENT}"
+            echo
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Reference: \`${REGISTRY}/${IMAGE_NAME}@${DIGEST}\`"
+            echo "- Source: \`${GITHUB_REPOSITORY}@${GITHUB_SHA}\`"
+            echo
+            if [[ "${REF_TYPE}" == "branch" ]]; then
+              echo "Re-pin eshu core from this run: the image is tagged sha-${GITHUB_SHA}, so set Scanner-Publish-SHA to ${GITHUB_SHA}, Scanner-Publish-Repo to ${GITHUB_REPOSITORY}, and this digest; use the same reference for the chart seed.image."
+            else
+              echo "Do not re-pin eshu core from a tag run. This release image carries the tag as its version, so its digest differs from the main-push image eshu core's Scanner-Publish-SHA check resolves (sha-<commit>). Re-pin from the main-push run of the same commit."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign the image
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_REF}"
+      - name: Verify the image signature
+        env:
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign verify "${IMAGE_REF}" \
+            --certificate-identity "${CERTIFICATE_IDENTITY}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+      - name: Generate the image SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: scanner-${{ matrix.component }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+      - name: Generate the SBOM attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: scanner-${{ matrix.component }}.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+      - name: Verify the image attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OCI_IMAGE_REF: oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_DIGEST: ${{ github.sha }}
+        run: |
+          gh attestation verify "${OCI_IMAGE_REF}" \
+            -R "${GITHUB_REPOSITORY}" \
+            --cert-identity "${CERTIFICATE_IDENTITY}" \
+            --source-ref "${SOURCE_REF}" \
+            --source-digest "${SOURCE_DIGEST}" \
+            --deny-self-hosted-runners
+          gh attestation verify "${OCI_IMAGE_REF}" \
+            -R "${GITHUB_REPOSITORY}" \
+            --cert-identity "${CERTIFICATE_IDENTITY}" \
+            --source-ref "${SOURCE_REF}" \
+            --source-digest "${SOURCE_DIGEST}" \
+            --deny-self-hosted-runners \
+            --predicate-type https://spdx.dev/Document/v2.3
