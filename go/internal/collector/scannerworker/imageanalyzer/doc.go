@@ -12,4 +12,9 @@
 // identity, or supported analyzer capability is missing. Registry access,
 // advisory matching, vulnerability finding admission, and graph truth stay
 // with their owning packages.
+//
+// OCI layer reads are bounded three ways: every tar entry counts against
+// MaxFiles, entry names are capped at 4096 bytes, and the decompressed bytes
+// of gzip layers (including skipped entry data) count against MaxInputBytes
+// for the whole target, checked together with the context on every read.
 package imageanalyzer
