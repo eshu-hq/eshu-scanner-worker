@@ -163,7 +163,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return r.chargeTrailing()
 		}
 		if err != nil {
 			return fmt.Errorf("%w: read layer archive", errUnsupportedTarget)

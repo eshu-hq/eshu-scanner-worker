@@ -21,6 +21,18 @@ const (
 	maxLayerEntryNameBytes = 4096
 )
 
+// chargeTrailing charges record blocks that ended the archive without a
+// header after them. They are invisible to handleEntry, so a chain of them at
+// the end of a layer would otherwise cost nothing.
+func (r *layerSnapshotReader) chargeTrailing() error {
+	cost := r.meter.trailingBlocks()
+	if r.filesSeen+cost > r.maxFiles {
+		return fmt.Errorf("%w: layer file budget exceeded", errFileLimitExceeded)
+	}
+	r.filesSeen += cost
+	return nil
+}
+
 func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) error {
 	// Every entry costs budget before any branching, so header-only entries
 	// (whiteouts, links, directories, unsafe names) cannot bypass MaxFiles.

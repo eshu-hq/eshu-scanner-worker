@@ -57,6 +57,21 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 	return meta / tarBlockBytes
 }
 
+// trailingBlocks returns the record blocks the stream consumed after the last
+// returned header, once tar.Reader reports the end of the archive with no
+// header after them. The end-of-archive marker is up to two zero blocks and
+// costs nothing.
+func (m *metaMeter) trailingBlocks() int64 {
+	if m.pos == nil {
+		return 0
+	}
+	blocks := (m.pos()-m.last-m.prevBody)/tarBlockBytes - 2
+	if blocks < 0 {
+		return 0
+	}
+	return blocks
+}
+
 // isSparse reports whether h is a sparse entry in either GNU format. Its body
 // is a logical stream: draining it generates zeros for the declared size at no
 // cost to any byte budget, and its wire size cannot be read from Header.Size.
