@@ -99,8 +99,13 @@ func TestPlainLayerRecordChainHonorsCancellation(t *testing.T) {
 func TestPlainLayerChecksContextBeforeChargingTrailing(t *testing.T) {
 	t.Parallel()
 
+	// Err is called four times before the check under test: once at the top of
+	// readLayer, then once per trackedFile read (the two end-of-archive blocks
+	// and the read that reports end of file). after: 4 lets those pass and
+	// cancels on the fifth call, the check before chargeTrailing. A smaller
+	// value cancels inside a read and never reaches it.
 	layer := writeRawLayer(t, nil, true, false)
-	ctx := &countdownContext{Context: context.Background(), after: 3}
+	ctx := &countdownContext{Context: context.Background(), after: 4}
 	reader := newLayerSnapshotReader(inflateLimits(1 << 30))
 	if err := readWithin(t, ctx, reader, layer); !errors.Is(err, errSourceUnavailable) {
 		t.Fatalf("readLayer() error = %v, want source unavailable for a context cancelled at the end of the archive", err)
