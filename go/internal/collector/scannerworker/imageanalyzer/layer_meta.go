@@ -7,10 +7,34 @@ import (
 	"archive/tar"
 	"io"
 	"math"
+	"os"
 	"strings"
 )
 
 const tarBlockBytes = 512
+
+// trackedFile follows the read offset of an uncompressed layer without a
+// system call per query. tar.Reader skips entry data by seeking when its
+// source is an io.Seeker, so the wrapper keeps that path and records each
+// result.
+type trackedFile struct {
+	file *os.File
+	pos  int64
+}
+
+func (f *trackedFile) Read(p []byte) (int, error) {
+	n, err := f.file.Read(p)
+	f.pos += int64(n)
+	return n, err
+}
+
+func (f *trackedFile) Seek(offset int64, whence int) (int64, error) {
+	pos, err := f.file.Seek(offset, whence)
+	if err == nil {
+		f.pos = pos
+	}
+	return pos, err
+}
 
 // layerCounter counts the bytes the tar reader pulls from a decompressed
 // stream. An uncompressed layer reports its file offset instead, so tar keeps

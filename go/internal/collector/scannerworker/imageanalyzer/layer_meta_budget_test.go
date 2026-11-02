@@ -399,3 +399,34 @@ func TestLayerFileBudgetBoundaryIsExact(t *testing.T) {
 		}
 	}
 }
+
+// TestTrackedFileFollowsTheFileOffset proves the wrapper reports the same
+// offset the file has after reads and seeks, and keeps it on a failed seek.
+func TestTrackedFileFollowsTheFileOffset(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, make([]byte, 4096), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+	tracked := &trackedFile{file: file}
+	buf := make([]byte, 100)
+	if _, err := tracked.Read(buf); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if _, err := tracked.Seek(500, io.SeekCurrent); err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+	if _, err := tracked.Seek(-5000, io.SeekCurrent); err == nil {
+		t.Fatal("Seek(-5000) error = nil, want a failed seek")
+	}
+	want, err := file.Seek(0, io.SeekCurrent)
+	if err != nil || tracked.pos != want || want != 600 {
+		t.Fatalf("tracked pos = %d, file offset = %d (%v), want both 600", tracked.pos, want, err)
+	}
+}

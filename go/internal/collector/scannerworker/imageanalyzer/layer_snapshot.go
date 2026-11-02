@@ -193,11 +193,9 @@ func (r *layerSnapshotReader) newLayerTarReader(file *os.File) (*tar.Reader, fun
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 		return nil, func() {}, seekErr
 	}
-	r.meter = newMetaMeter(func() int64 {
-		offset, _ := file.Seek(0, io.SeekCurrent)
-		return offset
-	})
-	return tar.NewReader(file), func() {}, nil
+	tracked := &trackedFile{file: file}
+	r.meter = newMetaMeter(func() int64 { return tracked.pos })
+	return tar.NewReader(tracked), func() {}, nil
 }
 
 func (r layerSnapshotReader) usage() scannerworker.ResourceUsage {
