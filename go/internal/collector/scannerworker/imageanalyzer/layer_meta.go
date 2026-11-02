@@ -50,7 +50,7 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 	cur := m.pos()
 	meta := cur - m.last - m.prevBody - tarBlockBytes
 	m.last = cur
-	m.prevBody = paddedBody(h.Size)
+	m.prevBody = wireBody(h)
 	if meta < 0 {
 		return 0
 	}
@@ -80,6 +80,17 @@ func isSparse(h *tar.Header) bool {
 		}
 	}
 	return false
+}
+
+// wireBody returns the padded body bytes tar.Reader consumes after h. Go
+// leaves Header.Size at the declared value for header-only types though it
+// reads no body for them, so those count as zero.
+func wireBody(h *tar.Header) int64 {
+	switch h.Typeflag {
+	case tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeDir, tar.TypeFifo:
+		return 0
+	}
+	return paddedBody(h.Size)
 }
 
 func paddedBody(size int64) int64 {

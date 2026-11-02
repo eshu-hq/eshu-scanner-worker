@@ -309,3 +309,63 @@ func TestLayerSparseEntryCannotHideMetaRecords(t *testing.T) {
 	err := analyzeWithLimits(t, layer, 3)
 	assertImageFailure(t, err, scannerworker.FailureClassFileLimitExceeded, false)
 }
+
+// declaredSizeHeader returns a header block of the given type whose size
+// field claims size bytes. Go leaves Header.Size at that value for header-only
+// types even though the wire carries no body.
+func declaredSizeHeader(t *testing.T, name string, typeflag byte, size int64) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := tar.NewWriter(&out)
+	if err := writer.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	block := append([]byte(nil), out.Bytes()[:512]...)
+	block[156] = typeflag
+	copy(block[124:136], fmt.Sprintf("%011o\x00", size))
+	for i := 148; i < 156; i++ {
+		block[i] = ' '
+	}
+	sum := 0
+	for _, b := range block {
+		sum += int(b)
+	}
+	copy(block[148:156], fmt.Sprintf("%06o\x00 ", sum))
+	return block
+}
+
+// TestLayerHeaderOnlyEntryCannotHideMetaRecords proves a directory, link, or
+// device header that declares a large size cannot absorb later records: the
+// wire carries no body for those types, whatever the size field says.
+func TestLayerHeaderOnlyEntryCannotHideMetaRecords(t *testing.T) {
+	t.Parallel()
+
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	for name, typeflag := range map[string]byte{
+		"directory": tar.TypeDir, "symlink": tar.TypeSymlink, "hard link": tar.TypeLink,
+		"char device": tar.TypeChar, "block device": tar.TypeBlock, "fifo": tar.TypeFifo,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var body bytes.Buffer
+			body.Write(declaredSizeHeader(t, "var/x", typeflag, 100<<20))
+			for i := 0; i < 50000; i++ {
+				body.Write(record)
+			}
+			var tail bytes.Buffer
+			writer := tar.NewWriter(&tail)
+			if err := writer.WriteHeader(&tar.Header{Name: "tmp/last", Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
+				t.Fatalf("WriteHeader: %v", err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			body.Write(tail.Bytes())
+			layer := filepath.Join(t.TempDir(), "declared.tar")
+			if err := os.WriteFile(layer, body.Bytes(), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			assertImageFailure(t, analyzeWithLimits(t, layer, 3), scannerworker.FailureClassFileLimitExceeded, false)
+		})
+	}
+}
