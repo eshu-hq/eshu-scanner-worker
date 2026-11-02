@@ -166,3 +166,21 @@ func TestLayerMetaRecordChainStopsWhileStreaming(t *testing.T) {
 		t.Fatalf("inflatedBytes = %d, want the chain cut within 16 blocks, not read to its %d-byte end", reader.inflatedBytes, headerOnlyEntries*len(record))
 	}
 }
+
+// TestLayerLargeEvidenceFileSurvivesSmallFileBudget proves the stream limit
+// guards only the span where tar.Reader looks for the next header: an
+// evidence body far larger than 512 bytes per remaining unit must still read.
+func TestLayerLargeEvidenceFileSurvivesSmallFileBudget(t *testing.T) {
+	t.Parallel()
+
+	layer := writeLayer(t, map[string]string{"etc/os-release": alpineRelease + strings.Repeat("#", 256*1024)})
+	limits := inflateLimits(1 << 30)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	if err := reader.readLayer(context.Background(), layer); err != nil {
+		t.Fatalf("readLayer() error = %v, want the 256 KiB evidence file accepted under MaxFiles=3", err)
+	}
+	if len(reader.files["etc/os-release"]) < 256*1024 {
+		t.Fatalf("os-release = %d bytes, want the whole file", len(reader.files["etc/os-release"]))
+	}
+}

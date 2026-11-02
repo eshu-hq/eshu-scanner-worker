@@ -18,8 +18,14 @@ func TestMetaMeterCountsBlocksBetweenHeaders(t *testing.T) {
 	meter := newMetaMeter(func() int64 { return pos }, 100)
 	// First header: two record blocks plus the header block.
 	pos = 3 * tarBlockBytes
+	if meter.limit == 0 {
+		t.Fatal("newMetaMeter armed no limit, want one for the first Next")
+	}
 	if got := meter.blocks(&tar.Header{Size: 700}); got != 2 {
 		t.Fatalf("blocks(first) = %d, want 2", got)
+	}
+	if meter.limit != 0 {
+		t.Fatalf("limit after a header = %d, want it cleared until settle re-arms", meter.limit)
 	}
 	// Second header: the 700-byte body pads to 1024, then only the header.
 	pos += 1024 + tarBlockBytes
@@ -56,6 +62,11 @@ func TestMetaMeterArmsAndSaturatesLimit(t *testing.T) {
 	meter.arm(math.MaxInt64)
 	if meter.limit != math.MaxInt64 {
 		t.Fatalf("limit(MaxInt64 units) = %d, want saturation", meter.limit)
+	}
+	meter.prevBody = math.MaxInt64
+	meter.arm(1)
+	if meter.limit != math.MaxInt64 {
+		t.Fatalf("limit(huge body) = %d, want saturation instead of overflow", meter.limit)
 	}
 }
 

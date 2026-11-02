@@ -66,6 +66,10 @@ func (m *metaMeter) arm(remaining int64) {
 	if remaining < 0 {
 		remaining = 0
 	}
+	if m.prevBody > math.MaxInt64-m.last {
+		m.limit = math.MaxInt64
+		return
+	}
 	room := m.last + m.prevBody
 	if remaining > (math.MaxInt64-room)/tarBlockBytes-2 {
 		m.limit = math.MaxInt64
@@ -80,6 +84,9 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 	if m.pos == nil {
 		return 0
 	}
+	// The header is in; the stream limit guarded only the span that found
+	// it. settle arms the next one, so the body read in between is free.
+	m.limit = 0
 	cur := m.pos()
 	meta := cur - m.last - m.prevBody - tarBlockBytes
 	m.last = cur
