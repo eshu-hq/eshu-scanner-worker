@@ -116,9 +116,16 @@ Component lane, first slice (os_package_extraction):
   tier's `latest_observed_at` agrees with `scanner_worker.analysis`. The
   `osruntime.json` and `image.json` parity goldens changed only in that
   field (`testdata/scanner-parity/PROVENANCE.md`).
-- Known defects (pre-existing in the eshu source, behavior unchanged here):
-  - eshu-hq/eshu-scanner-worker#36: layer whiteouts and opaque markers do
-    not follow OCI semantics.
+- Image layer reader (eshu-hq/eshu-scanner-worker#34, #35, and #36, fixed
+  here, a deliberate delta from the eshu source): `imageanalyzer` charges
+  every tar entry, and every 512-byte PAX or GNU long-name record block,
+  against `MaxFiles`; caps entry names at 4096 bytes; bounds the decompressed
+  bytes of gzip layers at 8x `MaxInputBytes` per target and checks the
+  context on every read; applies OCI whiteout, opaque-marker, and replacement
+  semantics to lower layers only; and rejects sparse entries as
+  `unsupported_target`. An overrun of the byte budget fails terminal
+  `input_limit_exceeded` and the component stderr line carries
+  `inflated_bytes`, `budget_bytes`, and `compressed_bytes`.
 
 Core-import replacements:
 

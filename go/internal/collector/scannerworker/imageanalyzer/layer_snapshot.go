@@ -34,6 +34,7 @@ type layerSnapshotReader struct {
 	remainingBytes  int64
 	inflatedBytes   int64
 	compressedBytes int64
+	layer           int
 	maxInflated     int64
 	maxFiles        int64
 	filesSeen       int64
@@ -42,6 +43,7 @@ type layerSnapshotReader struct {
 	files           map[string][]byte
 	oversizedRPM    map[string]bool
 	meter           metaMeter
+	pathLayer       map[string]int
 }
 
 func newLayerSnapshotReader(limits scannerworker.ResourceLimits) *layerSnapshotReader {
@@ -52,6 +54,7 @@ func newLayerSnapshotReader(limits scannerworker.ResourceLimits) *layerSnapshotR
 		startCPUSeconds: currentUserCPUSeconds(),
 		files:           make(map[string][]byte, layerRegularFiles),
 		oversizedRPM:    make(map[string]bool),
+		pathLayer:       make(map[string]int),
 	}
 }
 
@@ -156,6 +159,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%w: layer path is not a regular file", errUnsupportedTarget)
 	}
+	r.layer++
 	if info.Size() > r.remainingBytes {
 		return fmt.Errorf("%w: layer byte budget exceeded", errInputLimitExceeded)
 	}

@@ -24,4 +24,10 @@
 // decompressed-byte overrun fails terminal with input_limit_exceeded, and only
 // that failure carries inflated_bytes, budget_bytes, and compressed_bytes on
 // the component stderr line.
+//
+// Layers apply in order with OCI image-spec layer semantics (layer.md,
+// "Whiteouts", "Opaque Whiteout", "Changeset over existing files"): a
+// whiteout or opaque marker removes the path and every descendant from lower
+// layers only, and an entry of any type replaces what lower layers held at
+// its path. Entry names are not trimmed; leading slashes are stripped.
 package imageanalyzer
