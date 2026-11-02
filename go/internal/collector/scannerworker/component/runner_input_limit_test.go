@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	sdkcollector "github.com/eshu-hq/eshu-sdk/collector"
 
@@ -88,6 +89,13 @@ func TestRunnerLogsInputLimitFiguresOnStderrOnly(t *testing.T) {
 	wantKeys := []string{"analyzer", "at", "budget_bytes", "component", "compressed_bytes", "facts", "failure_class", "inflated_bytes", "observed_at", "page", "state", "total"}
 	if strings.Join(keys, ",") != strings.Join(wantKeys, ",") {
 		t.Fatalf("stderr keys = %v, want %v", keys, wantKeys)
+	}
+	wantTime := testClock().UTC().Format(time.RFC3339Nano)
+	for key := range map[string]bool{"at": true, "observed_at": true} {
+		var got string
+		if err := json.Unmarshal(record[key], &got); err != nil || got != wantTime {
+			t.Fatalf("stderr %s = %s, want %q (%v)", key, record[key], wantTime, err)
+		}
 	}
 	for key, want := range map[string]int64{"inflated_bytes": detail.InflatedBytes, "budget_bytes": detail.BudgetBytes, "compressed_bytes": detail.CompressedBytes} {
 		var got int64

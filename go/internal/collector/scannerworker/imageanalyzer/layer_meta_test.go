@@ -25,7 +25,7 @@ func TestMetaMeterCountsBlocksBetweenHeaders(t *testing.T) {
 		t.Fatalf("blocks(first) = %d, want 2", got)
 	}
 	if meter.limit != 0 {
-		t.Fatalf("limit after a header = %d, want it cleared until settle re-arms", meter.limit)
+		t.Fatalf("limit after a header = %d, want it cleared until readLayer re-arms", meter.limit)
 	}
 	// Second header: the 700-byte body pads to 1024, then only the header.
 	pos += 1024 + tarBlockBytes

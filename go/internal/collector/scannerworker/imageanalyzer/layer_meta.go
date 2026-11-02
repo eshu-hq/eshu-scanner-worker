@@ -85,7 +85,8 @@ func (m *metaMeter) blocks(h *tar.Header) int64 {
 		return 0
 	}
 	// The header is in; the stream limit guarded only the span that found
-	// it. settle arms the next one, so the body read in between is free.
+	// it. readLayer arms the next one after the entry, so the body read in between
+	// is free.
 	m.limit = 0
 	cur := m.pos()
 	meta := cur - m.last - m.prevBody - tarBlockBytes

@@ -236,3 +236,51 @@ func TestLayerInflateFiguresAccumulateAcrossLayers(t *testing.T) {
 		t.Fatalf("inflatedBytes = %d, want the second layer's bytes added to the first's %d", reader.inflatedBytes, consumed)
 	}
 }
+
+// TestLayerMetaRecordChainAfterAnEntryStopsWhileStreaming proves the stream
+// limit is re-armed for every Next call, not only the first: a record chain
+// that follows a real entry is cut within a few blocks of that entry.
+func TestLayerMetaRecordChainAfterAnEntryStopsWhileStreaming(t *testing.T) {
+	t.Parallel()
+
+	var first bytes.Buffer
+	writer := tar.NewWriter(&first)
+	if err := writer.WriteHeader(&tar.Header{Name: "tmp/first", Typeflag: tar.TypeReg, Mode: 0o644, Size: 5}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if _, err := writer.Write([]byte("hello")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	raw := append(append([]byte(nil), first.Bytes()...), bytes.Repeat(record, headerOnlyEntries)...)
+	layer := writeRawLayer(t, raw, true, true)
+
+	limits := inflateLimits(1 << 40)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	err := reader.readLayer(context.Background(), layer)
+	if !errors.Is(err, errFileLimitExceeded) {
+		t.Fatalf("readLayer() error = %v, want file limit", err)
+	}
+	if reader.inflatedBytes > 24*tarBlockBytes {
+		t.Fatalf("inflatedBytes = %d, want the chain after the first entry cut within 24 blocks, not read to its %d-byte end", reader.inflatedBytes, headerOnlyEntries*len(record))
+	}
+}
+
+// TestInflateBudgetErrorRendersItsFigures pins the text an operator reads in
+// a returned error.
+func TestInflateBudgetErrorRendersItsFigures(t *testing.T) {
+	t.Parallel()
+
+	err := inflateBudgetError{Detail: scannerworker.InputLimitDetail{InflatedBytes: 9, BudgetBytes: 8, CompressedBytes: 7}}
+	want := "image analyzer input limit exceeded: layer decompressed byte budget exceeded inflated_bytes=9 budget_bytes=8 compressed_bytes=7"
+	if err.Error() != want {
+		t.Fatalf("Error() = %q, want %q", err.Error(), want)
+	}
+	if !errors.Is(err, errInputLimitExceeded) {
+		t.Fatal("errors.Is(inflateBudgetError, errInputLimitExceeded) = false")
+	}
+}
