@@ -31,6 +31,10 @@ func runImageWithAnalyzer(t *testing.T, analyzer scannerworker.Analyzer) (sdkcol
 
 	claim := testClaim(IDImage, testImageScopeID, "scanner-worker:generation-test")
 	config := osruntimeConfig("/private/rootfs", 0)
+	// The target carries the sentinels too, so the test proves no claim or
+	// config value reaches the log, not only the injected cause text.
+	target := config["targets"].([]any)[0].(map[string]any)
+	target["source_uri"] = "oci://registry.example/private/app@sha256:deadbeef"
 	var stdout, stderr bytes.Buffer
 	runner := Runner{
 		ComponentID: IDImage,

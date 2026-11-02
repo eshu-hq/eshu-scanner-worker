@@ -114,7 +114,9 @@ func TestAnalyzeReportsInflateBudgetFiguresThroughTheWrap(t *testing.T) {
 
 // TestLayerEmptyGzipMemberFloodHonorsDeadline reproduces the review finding:
 // gzip skips empty members inside one Read, so a flood of 20-byte members ran
-// past the deadline without ever reaching the guard.
+// past the deadline without ever reaching the guard. The context cancels after
+// a fixed number of checks, so the test does not depend on load, and it fails
+// without the context-checking reader below gzip.
 func TestLayerEmptyGzipMemberFloodHonorsDeadline(t *testing.T) {
 	t.Parallel()
 
@@ -137,13 +139,20 @@ func TestLayerEmptyGzipMemberFloodHonorsDeadline(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	defer cancel()
+	ctx := &countdownContext{Context: context.Background(), after: 50}
 	reader := newLayerSnapshotReader(inflateLimits(1 << 30))
-	start := time.Now()
-	err = reader.readLayer(ctx, path)
-	if !errors.Is(err, errSourceUnavailable) {
-		t.Fatalf("readLayer() error = %v after %s, want source unavailable once the deadline passes", err, time.Since(start))
+	done := make(chan error, 1)
+	go func() { done <- reader.readLayer(ctx, path) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errSourceUnavailable) {
+			t.Fatalf("readLayer() error = %v, want source unavailable once the context cancels", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("readLayer() still reading the empty-member flood 30s after the context canceled")
+	}
+	if checks := ctx.calls.Load(); checks > 60 {
+		t.Fatalf("context was checked %d times, want the read stopped within a few checks of the 50th", checks)
 	}
 }
 
