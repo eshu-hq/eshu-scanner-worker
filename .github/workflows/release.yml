@@ -9,7 +9,8 @@ name: release
 # SLSA build provenance, a keyless cosign signature, an SPDX SBOM attestation,
 # and a verification of all of them against this repository and this
 # workflow at the allowed ref and source commit. A version tag publishes
-# only when its commit is already on the protected main branch. These
+# only when its commit is already on the protected main branch and it is a
+# strictly newer, non-rollback release (scripts/release-tag-guard.sh). These
 # in-workflow checks bind to the workflow file at the triggering ref, so a
 # person who can push a tag can also change them; the repository settings in
 # SECURITY.md ("Repository settings") close that gap.
@@ -72,16 +73,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # The tag must be on refs/remotes/origin/main, strictly newer than every
+      # other release, and not a rollback to an ancestor of the latest
+      # release (scripts/release-tag-guard.sh, tested in release_guard_test.go).
       - name: Require the tag to be on the protected main branch
         if: github.ref_type == 'tag'
         env:
+          TAG_NAME: ${{ github.ref_name }}
           TAG_COMMIT: ${{ github.sha }}
-        run: |
-          git fetch origin main --quiet
-          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
-            echo "tag '${TAG_NAME}' points at ${TAG_COMMIT}, which is not on the protected main branch" >&2
-            exit 1
-          fi
+        run: bash scripts/release-tag-guard.sh
       - name: Require the tag to match the manifest version
         if: github.ref_type == 'tag'
         run: |

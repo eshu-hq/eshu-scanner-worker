@@ -71,11 +71,16 @@ func TestReleaseWorkflowContract(t *testing.T) {
 		t.Error("release.yml must check the tag against the protected main branch before any build step")
 	} else {
 		body := text[guard:build]
-		for _, want := range []string{"if: github.ref_type == 'tag'", "TAG_COMMIT: ${{ github.sha }}", "git fetch origin main", `git merge-base --is-ancestor "${TAG_COMMIT}" origin/main`, "exit 1"} {
+		for _, want := range []string{"if: github.ref_type == 'tag'", "TAG_NAME: ${{ github.ref_name }}", "TAG_COMMIT: ${{ github.sha }}", "run: bash scripts/release-tag-guard.sh"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("main-branch guard lost %q", want)
 			}
 		}
+	}
+	// Refs are compared only by fully qualified names (the guard script uses
+	// refs/remotes/origin/main); a short origin/main could be shadowed.
+	if regexp.MustCompile(`[^/]origin/main`).MatchString(text) {
+		t.Error("release.yml must not use the short ref origin/main")
 	}
 	if !strings.Contains(text[checkout:], "fetch-depth: 0") {
 		t.Error("checkout must fetch full history for the ancestry check")

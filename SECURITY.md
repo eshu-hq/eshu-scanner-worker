@@ -56,8 +56,13 @@ cosign verify "${IMAGE}" --certificate-identity "${IDENTITY}" \
 These checks run in `release.yml` and fail the job before anything is built:
 
 - The ref is `refs/heads/main` or a `vMAJOR.MINOR.PATCH[-prerelease]` tag.
-- A tag's commit is an ancestor of `origin/main` (full-history checkout,
-  `git merge-base --is-ancestor`), so an unmerged commit is never published.
+- A tag's commit is on `main`: `scripts/release-tag-guard.sh` fetches it
+  into the fully qualified `refs/remotes/origin/main` and checks ancestry
+  there, so a tag or branch named `origin/main` cannot stand in for it.
+- A tag's version is strictly newer, by semantic version, than every other
+  release tag (a prerelease sorts before its release), and its commit is not
+  an ancestor of the latest release's commit. A newer version number cannot
+  publish older code.
 - A tag matches `component.Version`.
 
 After publishing, the job verifies the cosign signature and both attestations
@@ -71,7 +76,10 @@ repository settings below close that gap.
 ### Repository settings (required hardening, not yet applied)
 
 - A tag ruleset that restricts creating, updating, and deleting `v*` tags to
-  repository administrators.
+  repository administrators. It is also the only control for tag
+  immutability: the workflow cannot tell a deleted-and-re-pushed version tag
+  from a new one, so without the ruleset an existing version can be re-pushed
+  at a different commit.
 - A `release` environment with required reviewers and a deployment policy
   limited to `main` and `v*` tags. The publishing job already runs in
   `environment: release`; until the environment is configured, GitHub creates

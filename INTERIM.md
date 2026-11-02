@@ -64,7 +64,8 @@ Component lane, first slice (os_package_extraction):
   `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` by digest for amd64 and
   arm64 with SLSA provenance, cosign signature, and SBOM attestation, all
   verified in the job against the exact `release.yml@<ref>` identity and
-  source commit; a tag must be on `main`. `SECURITY.md` has the version-pair
+  source commit; a tag must be on `main`, strictly newer than every other
+  release, and not a rollback (`scripts/release-tag-guard.sh`). `SECURITY.md` has the version-pair
   table and the required repository hardening (a `v*` tag ruleset and a
   protected `release` environment), which is not yet applied. The first
   publish and the eshu re-pin have not happened.
