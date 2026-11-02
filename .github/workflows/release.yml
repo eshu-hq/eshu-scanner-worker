@@ -8,9 +8,11 @@ name: release
 # Scanner-Publish-Repo/SHA) and the chart seed.image values. Each image gets
 # SLSA build provenance, a keyless cosign signature, an SPDX SBOM attestation,
 # and a verification of all of them against this repository and this
-# workflow. A version tag publishes only when it points at the protected main
-# head (the same guard eshu-webhook uses), so an unmerged commit can never be
-# tagged into an attested image.
+# workflow at the allowed ref and source commit. A version tag publishes
+# only when its commit is already on the protected main branch. These
+# in-workflow checks bind to the workflow file at the triggering ref, so a
+# person who can push a tag can also change them; the repository settings in
+# SECURITY.md ("Repository settings") close that gap.
 on:
   push:
     branches:
@@ -34,6 +36,10 @@ jobs:
       fail-fast: false
       matrix:
         component: [image, sbom, osruntime]
+    # Required reviewers apply once the repository's release environment
+    # has them (SECURITY.md, "Repository settings"). A missing environment
+    # is created on first run without protection; it never fails the job.
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -44,26 +50,36 @@ jobs:
       IMAGE_NAME: ${{ github.repository_owner }}/scanner-${{ matrix.component }}
       TAG_NAME: ${{ github.ref_name }}
     steps:
-      - name: Require a semantic version tag
-        if: github.ref_type == 'tag'
+      - name: Require an allowed release ref
+        env:
+          SOURCE_REF: ${{ github.ref }}
         run: |
-          if ! printf '%s' "${TAG_NAME}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "tag '${TAG_NAME}' is not vMAJOR.MINOR.PATCH[-prerelease]" >&2
-            exit 1
-          fi
+          case "${SOURCE_REF}" in
+            refs/heads/main) ;;
+            refs/tags/v*)
+              if ! printf '%s' "${SOURCE_REF#refs/tags/}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+                echo "tag '${SOURCE_REF#refs/tags/}' is not vMAJOR.MINOR.PATCH[-prerelease]" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "ref '${SOURCE_REF}' is not refs/heads/main or a version tag" >&2
+              exit 1
+              ;;
+          esac
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Require the tag to point at the protected main head
+      - name: Require the tag to be on the protected main branch
         if: github.ref_type == 'tag'
         env:
           TAG_COMMIT: ${{ github.sha }}
         run: |
           git fetch origin main --quiet
-          main_head="$(git rev-parse origin/main)"
-          if [[ "${TAG_COMMIT}" != "${main_head}" ]]; then
-            echo "tag '${TAG_NAME}' points at ${TAG_COMMIT}, not the protected main head ${main_head}" >&2
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
+            echo "tag '${TAG_NAME}' points at ${TAG_COMMIT}, which is not on the protected main branch" >&2
             exit 1
           fi
       - name: Require the tag to match the manifest version
@@ -150,7 +166,7 @@ jobs:
         run: cosign sign --yes "${IMAGE_REF}"
       - name: Verify the image signature
         env:
-          CERTIFICATE_IDENTITY: https://github.com/${{ github.workflow_ref }}
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
         run: |
           cosign verify "${IMAGE_REF}" \
@@ -176,11 +192,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OCI_IMAGE_REF: oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_DIGEST: ${{ github.sha }}
         run: |
           gh attestation verify "${OCI_IMAGE_REF}" \
             -R "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
+            --cert-identity "${CERTIFICATE_IDENTITY}" \
+            --source-ref "${SOURCE_REF}" \
+            --source-digest "${SOURCE_DIGEST}" \
+            --deny-self-hosted-runners
           gh attestation verify "${OCI_IMAGE_REF}" \
             -R "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
+            --cert-identity "${CERTIFICATE_IDENTITY}" \
+            --source-ref "${SOURCE_REF}" \
+            --source-digest "${SOURCE_DIGEST}" \
+            --deny-self-hosted-runners \
             --predicate-type https://spdx.dev/Document/v2.3

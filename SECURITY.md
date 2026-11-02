@@ -35,18 +35,50 @@ scope.
 `.github/workflows/release.yml` publishes
 `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` for `linux/amd64` and
 `linux/arm64` with SLSA build provenance, a keyless cosign signature, and an
-SPDX SBOM attestation, and verifies all of them against this repository
-before the job succeeds. A `v*` tag publishes only when it points at the
-protected `main` head. Verify a digest yourself with:
+SPDX SBOM attestation.
+
+Verify a published digest yourself. Use the exact signer identity for the ref
+that built it (`refs/heads/main`, or `refs/tags/vX.Y.Z` for a release), never
+a regular expression:
 
 ```sh
-gh attestation verify oci://ghcr.io/eshu-hq/scanner-osruntime@sha256:<digest> \
-  -R eshu-hq/eshu-scanner-worker \
-  --signer-workflow eshu-hq/eshu-scanner-worker/.github/workflows/release.yml
-cosign verify ghcr.io/eshu-hq/scanner-osruntime@sha256:<digest> \
-  --certificate-identity-regexp '^https://github.com/eshu-hq/eshu-scanner-worker/' \
+IMAGE=ghcr.io/eshu-hq/scanner-osruntime@sha256:<digest>
+REF=refs/heads/main            # or refs/tags/vX.Y.Z
+IDENTITY="https://github.com/eshu-hq/eshu-scanner-worker/.github/workflows/release.yml@${REF}"
+gh attestation verify "oci://${IMAGE}" -R eshu-hq/eshu-scanner-worker \
+  --cert-identity "${IDENTITY}" --source-ref "${REF}" --deny-self-hosted-runners
+cosign verify "${IMAGE}" --certificate-identity "${IDENTITY}" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+### Enforced inside the workflow
+
+These checks run in `release.yml` and fail the job before anything is built:
+
+- The ref is `refs/heads/main` or a `vMAJOR.MINOR.PATCH[-prerelease]` tag.
+- A tag's commit is an ancestor of `origin/main` (full-history checkout,
+  `git merge-base --is-ancestor`), so an unmerged commit is never published.
+- A tag matches `component.Version`.
+
+After publishing, the job verifies the cosign signature and both attestations
+against the exact identity `release.yml@<triggering ref>`, the triggering
+ref, and the source commit, and rejects self-hosted runners.
+
+Limit: these checks live in the workflow file at the triggering ref. A person
+who can push a `v*` tag can push a tag whose `release.yml` skips them. Only the
+repository settings below close that gap.
+
+### Repository settings (required hardening, not yet applied)
+
+- A tag ruleset that restricts creating, updating, and deleting `v*` tags to
+  repository administrators.
+- A `release` environment with required reviewers and a deployment policy
+  limited to `main` and `v*` tags. The publishing job already runs in
+  `environment: release`; until the environment is configured, GitHub creates
+  it on first use with no protection.
+- `main` already requires `ci-complete` through the `main-ci-complete`
+  ruleset. Adding a required pull-request review to that ruleset is
+  recommended, because a tag can only publish commits that reached `main`.
 
 CI runs `govulncheck` and `gosec` on every push to `main` and on the weekly
 schedule, `govulncheck` on pull requests that change `go.mod`, and `gosec`
