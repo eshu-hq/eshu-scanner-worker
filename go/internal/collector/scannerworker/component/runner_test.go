@@ -285,8 +285,9 @@ func TestRunnerRejectsForeignTargetShape(t *testing.T) {
 }
 
 // TestRunnerPagesShareClaimStableObservedAtLiveClock proves every page of
-// one claim carries the same Generation.ObservedAt even when the wall clock
-// advances between the stateless re-invocations.
+// one claim carries the same Generation.ObservedAt, and every fact the same
+// observed_at, even when the wall clock advances between the stateless
+// re-invocations (eshu-hq/eshu-scanner-worker#33).
 func TestRunnerPagesShareClaimStableObservedAtLiveClock(t *testing.T) {
 	t.Parallel()
 
@@ -303,11 +304,23 @@ func TestRunnerPagesShareClaimStableObservedAtLiveClock(t *testing.T) {
 		if pages > maxPagesPerClaim {
 			t.Fatal("paging did not terminate")
 		}
-		page, _ := runRawWithClock(t, IDOSRuntime, testRequestWithContinuation(t, claim, config, cursor), clock)
+		page, stderr := runRawWithClock(t, IDOSRuntime, testRequestWithContinuation(t, claim, config, cursor), clock)
 		if page.State != sdkcollector.ResultComplete {
 			t.Fatalf("page state = %q, want complete", page.State)
 		}
 		stamps = append(stamps, page.Generation.ObservedAt)
+		var record map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(stderr)), &record); err != nil {
+			t.Fatalf("page %d stderr record is not one JSON line: %v", pages, err)
+		}
+		if got, want := record["observed_at"], stamps[0].UTC().Format(time.RFC3339Nano); got != want {
+			t.Fatalf("page %d stderr observed_at = %v, want claim observation time %v", pages, got, want)
+		}
+		for _, fact := range page.Facts {
+			if !fact.ObservedAt.Equal(stamps[0]) {
+				t.Fatalf("page %d fact observed_at %s differs from the claim observation time %s", pages, fact.ObservedAt.Format(time.RFC3339Nano), stamps[0].Format(time.RFC3339Nano))
+			}
+		}
 		if !page.Page.More {
 			break
 		}
@@ -380,7 +393,6 @@ func directOSRuntimeOutput(t *testing.T, claim sdkcollector.Claim, root string) 
 			SourceURI:      "oci://registry.example/t@sha256:deadbeef",
 			SourceRecordID: "sha256:deadbeef",
 		}},
-		Now: testClock,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)

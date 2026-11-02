@@ -270,7 +270,6 @@ func newTestAnalyzer(t *testing.T, target TargetConfig) *Analyzer {
 	analyzer, err := NewAnalyzer(AnalyzerConfig{
 		CollectorInstanceID: "scanner-worker-image",
 		Targets:             []TargetConfig{target},
-		Now:                 fixedNow,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v, want nil", err)

@@ -47,7 +47,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0000@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -97,7 +97,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0001@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -147,7 +147,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0002@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -197,7 +197,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0003@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -247,7 +247,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0004@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -297,7 +297,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0005@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -347,7 +347,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0006@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -397,7 +397,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0007@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -447,7 +447,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0008@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -497,7 +497,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0009@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -547,7 +547,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0010@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -597,7 +597,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0011@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -647,7 +647,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0012@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -697,7 +697,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0013@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -747,7 +747,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0014@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -797,7 +797,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0015@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -847,7 +847,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0016@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -897,7 +897,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0017@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -947,7 +947,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0018@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -997,7 +997,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0019@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1047,7 +1047,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0020@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1097,7 +1097,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0021@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1147,7 +1147,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0022@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1197,7 +1197,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0023@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1247,7 +1247,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0024@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1297,7 +1297,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0025@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1347,7 +1347,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0026@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1397,7 +1397,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0027@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1447,7 +1447,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0028@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1497,7 +1497,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0029@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1547,7 +1547,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0030@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1597,7 +1597,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0031@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1647,7 +1647,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0032@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1697,7 +1697,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0033@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1747,7 +1747,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0034@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1797,7 +1797,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0035@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1847,7 +1847,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0036@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1897,7 +1897,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0037@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1947,7 +1947,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0038@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -1997,7 +1997,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0039@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2047,7 +2047,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0040@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2097,7 +2097,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0041@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2147,7 +2147,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0042@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2197,7 +2197,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0043@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2247,7 +2247,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0044@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2297,7 +2297,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0045@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2347,7 +2347,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0046@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2397,7 +2397,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0047@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2447,7 +2447,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0048@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2497,7 +2497,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0049@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2547,7 +2547,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0050@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2597,7 +2597,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0051@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2647,7 +2647,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0052@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2697,7 +2697,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0053@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2747,7 +2747,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0054@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2797,7 +2797,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0055@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2847,7 +2847,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0056@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2897,7 +2897,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0057@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2947,7 +2947,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0058@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",
@@ -2997,7 +2997,7 @@
     "CollectorKind": "os_package_vulnerability",
     "FencingToken": 13,
     "SourceConfidence": "reported",
-    "ObservedAt": "2026-10-31T16:08:20.742184584Z",
+    "ObservedAt": "2026-07-08T12:00:00Z",
     "Payload": {
       "arch": "x86_64",
       "bom_ref": "pkg:apk/alpine/parity-pkg-0059@3.1.4-r5?arch=x86_64\u0026distro=alpine-3.19.1",

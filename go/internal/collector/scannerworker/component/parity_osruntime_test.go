@@ -32,10 +32,6 @@ const (
 	parityInstanceID       = "scanner-parity"
 	paritySourceURI        = "oci://registry.example/parity@sha256:deadbeef"
 	paritySourceRecordID   = "sha256:deadbeef"
-	// parityCaptureObservedAt is the wall-clock snapshot time the golden was
-	// captured at: LocalRootFSProvider stamps time.Now, so it is the only
-	// input the port cannot recompute.
-	parityCaptureObservedAt = "2026-10-31T16:08:20.743925041Z"
 	// parityPageBound matches the core parity bound so the golden splits
 	// into several pages and exercises the continuation path.
 	parityPageBound = int64(8 * 1024)
@@ -43,31 +39,6 @@ const (
 
 func parityObservedAt() time.Time {
 	return time.Date(2026, time.July, 8, 12, 0, 0, 0, time.UTC)
-}
-
-// pinnedSnapshotProvider wraps the real rootfs provider and pins only the
-// snapshot observation time to the golden capture time.
-type pinnedSnapshotProvider struct {
-	at time.Time
-}
-
-func (p pinnedSnapshotProvider) Snapshot(
-	ctx context.Context,
-	target osruntime.TargetConfig,
-	limits scannerworker.ResourceLimits,
-) (osruntime.Snapshot, scannerworker.ResourceUsage, error) {
-	snapshot, usage, err := osruntime.LocalRootFSProvider{}.Snapshot(ctx, target, limits)
-	snapshot.ObservedAt = p.at
-	return snapshot, usage, err
-}
-
-func parityCaptureTime(t *testing.T) time.Time {
-	t.Helper()
-	at, err := time.Parse(time.RFC3339Nano, parityCaptureObservedAt)
-	if err != nil {
-		t.Fatalf("parse capture time: %v", err)
-	}
-	return at
 }
 
 // parityRootFS writes the 60-package synthetic Alpine rootfs the core driver
@@ -145,8 +116,6 @@ func TestOSRuntimeGoldenEnvelopeParity(t *testing.T) {
 	analyzer, err := osruntime.NewAnalyzer(osruntime.AnalyzerConfig{
 		CollectorInstanceID: parityInstanceID,
 		Targets:             parityTargets(parityRootFS(t, 60)),
-		Provider:            pinnedSnapshotProvider{at: parityCaptureTime(t)},
-		Now:                 parityObservedAt,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
@@ -207,7 +176,6 @@ func runParityPages(t *testing.T, rootfs string) []sdkcollector.Result {
 			Stdin:       bytes.NewReader(raw),
 			Stdout:      &stdout,
 			Clock:       parityObservedAt,
-			snapshots:   pinnedSnapshotProvider{at: parityCaptureTime(t)},
 		}
 		if err := runner.Run(context.Background()); err != nil {
 			t.Fatalf("Run() call %d error = %v", call, err)

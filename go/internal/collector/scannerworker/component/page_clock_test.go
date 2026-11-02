@@ -17,37 +17,15 @@ import (
 
 	sdkcollector "github.com/eshu-hq/eshu-sdk/collector"
 
-	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
 )
 
-// driftingSnapshotProvider wraps the real rootfs provider and stamps each
-// Snapshot call with the next time in a cycle, as the wall clock does for the
-// stateless per-page calls of one claim. The cycle differs only in trailing
-// zeros of the RFC 3339 nanosecond form, which is enough to change fact byte
-// sizes and so move the page split (eshu-hq/eshu-scanner-worker#33).
-type driftingSnapshotProvider struct {
-	calls *atomic.Int64
-	times []time.Time
-}
-
-func (p driftingSnapshotProvider) Snapshot(
-	ctx context.Context,
-	target osruntime.TargetConfig,
-	limits scannerworker.ResourceLimits,
-) (osruntime.Snapshot, scannerworker.ResourceUsage, error) {
-	snapshot, usage, err := osruntime.LocalRootFSProvider{}.Snapshot(ctx, target, limits)
-	call := p.calls.Add(1) - 1
-	snapshot.ObservedAt = p.times[int(call)%len(p.times)]
-	return snapshot, usage, err
-}
-
-// TestOSRuntimeMultiPageClaimSurvivesDriftingSnapshotClock drives a 50,000
+// TestOSRuntimeMultiPageClaimSurvivesDriftingWallClock drives a 50,000
 // fact osruntime claim across its pages while every call sees a different
-// wall-clock snapshot time. Reassembly must neither lose nor duplicate a
-// fact, and every fact must carry one observation time.
-func TestOSRuntimeMultiPageClaimSurvivesDriftingSnapshotClock(t *testing.T) {
+// wall clock, through the real LocalRootFSProvider. Reassembly must neither
+// lose nor duplicate a fact, and every fact must carry one observation time.
+func TestOSRuntimeMultiPageClaimSurvivesDriftingWallClock(t *testing.T) {
 	t.Parallel()
 
 	root := parityRootFS(t, hostileFactCount)
@@ -55,14 +33,14 @@ func TestOSRuntimeMultiPageClaimSurvivesDriftingSnapshotClock(t *testing.T) {
 		"targets":            []any{map[string]any{"scope_id": parityScopeID, "rootfs_path": root, "source_uri": paritySourceURI, "source_record_id": paritySourceRecordID}},
 		"acceptance_unit_id": parityAcceptanceUnitID,
 	}
-	want := directPinnedOSRuntimeFacts(t, root, pinnedSnapshotProvider{at: parityCaptureTime(t)})
+	want := directOSRuntimeFacts(t, root)
 	assertDriftingClockPaging(t, IDOSRuntime, parityClaim(), config, want)
 }
 
-// TestImageRootFSMultiPageClaimSurvivesDriftingSnapshotClock is the same
+// TestImageRootFSMultiPageClaimSurvivesDriftingWallClock is the same
 // check for the image component's rootfs evidence path, which reads through
 // the same snapshot provider: 49,999 packages plus the analysis fact.
-func TestImageRootFSMultiPageClaimSurvivesDriftingSnapshotClock(t *testing.T) {
+func TestImageRootFSMultiPageClaimSurvivesDriftingWallClock(t *testing.T) {
 	t.Parallel()
 
 	root := parityRootFS(t, hostileFactCount-1)
@@ -75,8 +53,6 @@ func TestImageRootFSMultiPageClaimSurvivesDriftingSnapshotClock(t *testing.T) {
 	analyzer, err := imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{
 		CollectorInstanceID: parityInstanceID,
 		Targets:             targets,
-		Provider:            pinnedSnapshotProvider{at: parityImageCaptureTime(t)},
-		Now:                 parityObservedAt,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
@@ -89,21 +65,23 @@ func TestImageRootFSMultiPageClaimSurvivesDriftingSnapshotClock(t *testing.T) {
 }
 
 // assertDriftingClockPaging runs the component across all pages with a
-// snapshot provider that returns a different wall-clock time on every call,
-// then checks the reassembled stream against the direct analysis's fact
+// wall clock that differs on every call, then checks the reassembled stream against the direct analysis's fact
 // identities and for one shared observation time.
 func assertDriftingClockPaging(t *testing.T, componentID string, claim sdkcollector.Claim, config map[string]any, want []sdkcollector.Fact) {
 	t.Helper()
 
-	provider := driftingSnapshotProvider{
-		calls: new(atomic.Int64),
-		times: []time.Time{
-			time.Date(2026, time.October, 31, 16, 8, 20, 123456789, time.UTC),
-			time.Date(2026, time.October, 31, 16, 8, 20, 120000000, time.UTC),
-		},
+	// Each stateless call sees a different wall clock, as a live host does.
+	// The times differ only in trailing zeros of the RFC 3339 nanosecond
+	// form, which changes fact byte sizes. Only page 0's clock may reach the
+	// facts; later pages must take the time from the cursor.
+	times := []time.Time{
+		time.Date(2026, time.July, 8, 12, 0, 0, 123456789, time.UTC),
+		time.Date(2026, time.July, 8, 12, 0, 1, 120000000, time.UTC),
 	}
+	var calls atomic.Int64
 	got := hostileRun(t, componentID, claim, config, func(stdin []byte, stdout *bytes.Buffer) Runner {
-		return Runner{ComponentID: componentID, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: parityObservedAt, snapshots: provider}
+		at := times[int(calls.Add(1)-1)%len(times)]
+		return Runner{ComponentID: componentID, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: func() time.Time { return at }}
 	}, hostileFactCount)
 
 	if len(got) != len(want) {
@@ -133,7 +111,7 @@ func assertDriftingClockPaging(t *testing.T, componentID string, claim sdkcollec
 	if lost != 0 || duplicates != 0 {
 		t.Errorf("reassembly lost %d facts and duplicated %d across pages", lost, duplicates)
 	}
-	if len(observed) != 1 {
-		t.Errorf("facts carry %d distinct observed_at values, want 1 for one claim", len(observed))
+	if len(observed) != 1 || observed[times[0]] != len(got) {
+		t.Errorf("facts carry observed_at values %v, want every fact at the page 0 claim observation time %s", observed, times[0].Format(time.RFC3339Nano))
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
@@ -31,6 +30,7 @@ var (
 	errFileLimitExceeded  = errors.New("image analyzer file limit exceeded")
 	errFactLimitExceeded  = errors.New("image analyzer fact limit exceeded")
 	errUnsupportedTarget  = errors.New("image analyzer unsupported target")
+	errMissingObservedAt  = errors.New("image analyzer claim observed_at is missing")
 )
 
 // Analyzer extracts installed package source facts from configured image
@@ -39,7 +39,6 @@ type Analyzer struct {
 	collectorInstanceID string
 	targets             map[string]TargetConfig
 	provider            osruntime.SnapshotProvider
-	now                 func() time.Time
 }
 
 // NewAnalyzer validates configuration and builds an image unpacking analyzer.
@@ -62,10 +61,6 @@ func NewAnalyzer(config AnalyzerConfig) (*Analyzer, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("at least one image analyzer target is required")
 	}
-	now := config.Now
-	if now == nil {
-		now = time.Now
-	}
 	provider := config.Provider
 	if provider == nil {
 		provider = osruntime.LocalRootFSProvider{}
@@ -74,7 +69,6 @@ func NewAnalyzer(config AnalyzerConfig) (*Analyzer, error) {
 		collectorInstanceID: collectorInstanceID,
 		targets:             targets,
 		provider:            provider,
-		now:                 now,
 	}, nil
 }
 
@@ -84,6 +78,16 @@ func (a *Analyzer) Analyze(
 	ctx context.Context,
 	input scannerworker.ClaimInput,
 ) (scannerworker.AnalyzerResult, error) {
+	// Every fact of one claim carries the claim observation time; there is no
+	// wall-clock fallback (eshu-hq/eshu-scanner-worker#33). Reject a missing
+	// time before any read.
+	if input.ObservedAt.IsZero() {
+		return scannerworker.AnalyzerResult{}, scannerworker.NewTerminalAnalyzerFailure(
+			scannerworker.FailureClassAnalyzerFailed,
+			scannerworker.ResourceUsage{},
+			errMissingObservedAt,
+		)
+	}
 	target, ok := a.targets[strings.TrimSpace(input.Target.ScopeID)]
 	if !ok {
 		return scannerworker.AnalyzerResult{}, scannerworker.NewTerminalAnalyzerFailure(
@@ -117,7 +121,7 @@ func (a *Analyzer) Analyze(
 			errFactLimitExceeded,
 		)
 	}
-	analysis, err := newAnalysisFact(input, target, snapshot, resultCount, len(envelopes)+1, a.now().UTC())
+	analysis, err := newAnalysisFact(input, target, snapshot, resultCount, len(envelopes)+1)
 	if err != nil {
 		return scannerworker.AnalyzerResult{}, analyzerFailure(err, usage)
 	}
@@ -160,7 +164,7 @@ func (a *Analyzer) snapshot(
 		if err != nil {
 			translated := translateOSRuntimeError(err)
 			if errors.Is(translated, errTargetUnavailable) {
-				if unsupported, unsupportedUsage, ok := readRootFSUnsupportedSnapshot(ctx, target, limits, a.now); ok {
+				if unsupported, unsupportedUsage, ok := readRootFSUnsupportedSnapshot(ctx, target, limits); ok {
 					return unsupported, mergeUsage(usage, unsupportedUsage), errUnsupportedTarget
 				}
 			}
@@ -182,10 +186,9 @@ func (a *Analyzer) snapshot(
 			ImageDigest:         target.ImageDigest,
 			EvidenceSource:      EvidenceSourceRootFS,
 			ExtractionReason:    extractionOK,
-			ObservedAt:          snapshot.ObservedAt,
 		}, usage, nil
 	}
-	return readLayerSnapshot(ctx, target, limits, a.now)
+	return readLayerSnapshot(ctx, target, limits)
 }
 
 func mergeUsage(primary scannerworker.ResourceUsage, secondary scannerworker.ResourceUsage) scannerworker.ResourceUsage {
@@ -199,19 +202,12 @@ func mergeUsage(primary scannerworker.ResourceUsage, secondary scannerworker.Res
 }
 
 func (a *Analyzer) envelopes(input scannerworker.ClaimInput, snapshot Snapshot) ([]facts.Envelope, int, error) {
-	observedAt := snapshot.ObservedAt.UTC()
-	if observedAt.IsZero() {
-		observedAt = input.ObservedAt.UTC()
-	}
-	if observedAt.IsZero() {
-		observedAt = a.now().UTC()
-	}
 	ctx := ospackagevulnerability.EnvelopeContext{
 		ScopeID:             input.Target.ScopeID,
 		GenerationID:        input.GenerationID,
 		CollectorInstanceID: a.collectorInstanceID,
 		FencingToken:        input.FencingToken,
-		ObservedAt:          observedAt,
+		ObservedAt:          input.ObservedAt.UTC(),
 		SourceURI:           snapshot.SourceURI,
 		SourceRecordID:      firstNonBlank(snapshot.SourceRecordID, snapshot.ImageDigest),
 	}
@@ -259,7 +255,7 @@ func (a *Analyzer) unsupportedResult(
 	snapshot Snapshot,
 	usage scannerworker.ResourceUsage,
 ) (scannerworker.AnalyzerResult, error) {
-	fact, err := newUnsupportedWarning(input, target, snapshot, a.now().UTC())
+	fact, err := newUnsupportedWarning(input, target, snapshot)
 	if err != nil {
 		return scannerworker.AnalyzerResult{}, analyzerFailure(err, usage)
 	}

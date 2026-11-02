@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	sdkcollector "github.com/eshu-hq/eshu-sdk/collector"
 
@@ -21,19 +20,7 @@ import (
 const (
 	parityImageReference = "registry.example/parity:1.0"
 	parityImageDigest    = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	// parityImageCaptureObservedAt is the wall-clock rootfs snapshot time
-	// the image golden captured for its os_package facts.
-	parityImageCaptureObservedAt = "2026-10-31T16:08:20.742184584Z"
 )
-
-func parityImageCaptureTime(t *testing.T) time.Time {
-	t.Helper()
-	at, err := time.Parse(time.RFC3339Nano, parityImageCaptureObservedAt)
-	if err != nil {
-		t.Fatalf("parse capture time: %v", err)
-	}
-	return at
-}
 
 func parityImageTargets(rootfs string) []imageanalyzer.TargetConfig {
 	return []imageanalyzer.TargetConfig{{
@@ -65,8 +52,6 @@ func TestImageGoldenEnvelopeParity(t *testing.T) {
 	analyzer, err := imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{
 		CollectorInstanceID: parityInstanceID,
 		Targets:             parityImageTargets(parityRootFS(t, 60)),
-		Provider:            pinnedSnapshotProvider{at: parityImageCaptureTime(t)},
-		Now:                 parityObservedAt,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
@@ -126,7 +111,6 @@ func TestImageRunnerPagesMatchGolden(t *testing.T) {
 			Stdin:       bytes.NewReader(testRequestWithContinuation(t, parityImageClaim(), config, cursor)),
 			Stdout:      &stdout,
 			Clock:       parityObservedAt,
-			snapshots:   pinnedSnapshotProvider{at: parityImageCaptureTime(t)},
 		}
 		if err := runner.Run(context.Background()); err != nil {
 			t.Fatalf("Run() page %d error = %v", index, err)

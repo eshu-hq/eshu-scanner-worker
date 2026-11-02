@@ -54,8 +54,10 @@ type Runner struct {
 
 	// snapshots overrides the rootfs snapshot provider the osruntime and
 	// image analyzers read through. Nil uses the analyzer default
-	// (osruntime.LocalRootFSProvider). Test seam only: the parity tests pin
-	// the wall-clock snapshot time the goldens captured.
+	// (osruntime.LocalRootFSProvider). Test seam only: the page-clock test
+	// injects a provider that changes between stateless calls to prove the
+	// split does not depend on the read. Snapshots carry no clock; every
+	// fact takes the claim observation time.
 	snapshots osruntime.SnapshotProvider
 	// inventory overrides the SBOM repository source after the operator
 	// targets decode and validate. Test seam only: the SBOM golden was
@@ -125,25 +127,25 @@ func (r Runner) Run(ctx context.Context) error {
 		var cursorObservedAt time.Time
 		resume, cursorObservedAt, err = parseCursor(req.Continuation.Cursor)
 		if err != nil {
-			r.log(analyzer, "terminal", 0, 0, 0, "component_bad_cursor")
+			r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_cursor")
 			return r.emitTerminal(req.Claim, callNow, "component_bad_cursor")
 		}
 		observedAt = cursorObservedAt
 	}
 	if req.Claim.ComponentID != r.ComponentID {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_claim_mismatch")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_claim_mismatch")
 		return r.emitTerminal(req.Claim, observedAt, "component_claim_mismatch")
 	}
 	config, err := parseConfig(req.Config)
 	if err != nil {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_bad_config")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_config")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_config")
 	}
 	input, err := claimInput(req.Claim, config, analyzer, observedAt)
 	if err != nil {
 		// The echoed claim is malformed, so the host SDK validator will
 		// reject this result as invalid: still terminal, still no retry.
-		r.log(analyzer, "terminal", 0, 0, 0, "component_bad_claim")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_claim")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_claim")
 	}
 	executor, err := buildAnalyzer(analyzer, req.Claim, config, observedAt, r.snapshots, r.inventory)
@@ -152,7 +154,7 @@ func (r Runner) Run(ctx context.Context) error {
 		if errors.Is(err, errBadTargetConfig) {
 			class = "component_bad_config"
 		}
-		r.log(analyzer, "terminal", 0, 0, 0, class)
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, class)
 		return r.emitTerminal(req.Claim, observedAt, class)
 	}
 	bound, err := pageBound(config.PageBoundBytes)
@@ -165,27 +167,27 @@ func (r Runner) Run(ctx context.Context) error {
 	cancel()
 	latencyMS := int(time.Since(start).Milliseconds())
 	if err != nil {
-		r.log(analyzer, failureState(err), 0, 0, 0, failureClass(err))
+		r.log(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err))
 		return r.emitFailure(req.Claim, observedAt, err)
 	}
 	output := result.Output
 	if err := scannerworker.ValidateFactOutput(input, output); err != nil {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_invalid_output")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_invalid_output")
 		return r.emitTerminal(req.Claim, observedAt, "component_invalid_output")
 	}
 	pages, err := scannerworker.SplitFactOutput(output, bound)
 	if err != nil {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_fact_above_bound")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_fact_above_bound")
 		return r.emitTerminal(req.Claim, observedAt, "component_fact_above_bound")
 	}
 	if len(pages) > maxPagesPerClaim {
-		r.log(analyzer, "terminal", 0, 0, 0, "component_page_bound_exceeded")
+		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_page_bound_exceeded")
 		return r.emitTerminal(req.Claim, observedAt, "component_page_bound_exceeded")
 	}
 	index := resume
 	if req.Continuation != nil {
 		if err := checkCursorRange(req.Continuation.Cursor, index, len(pages)); err != nil {
-			r.log(analyzer, "terminal", 0, 0, 0, "component_bad_cursor")
+			r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_cursor")
 			return r.emitTerminal(req.Claim, observedAt, "component_bad_cursor")
 		}
 	}
@@ -198,7 +200,7 @@ func (r Runner) Run(ctx context.Context) error {
 		// it carried a credential) fails the claim terminal here instead of
 		// shipping a "complete" page the host would reject.
 		if err != nil || strings.TrimSpace(wire.SourceRef.URI) == "" {
-			r.log(analyzer, "terminal", 0, 0, 0, "component_invalid_output")
+			r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_invalid_output")
 			return r.emitTerminal(req.Claim, observedAt, "component_invalid_output")
 		}
 		wireFacts = append(wireFacts, wire)
@@ -233,7 +235,7 @@ func (r Runner) Run(ctx context.Context) error {
 	if _, err := io.Copy(r.Stdout, bytes.NewReader(raw)); err != nil {
 		return fmt.Errorf("write component result: %w", err)
 	}
-	r.log(analyzer, "complete", index, len(wireFacts), len(output.Facts), "")
+	r.log(analyzer, observedAt, "complete", index, len(wireFacts), len(output.Facts), "")
 	return nil
 }
 
@@ -324,19 +326,23 @@ func (r Runner) emit(claim sdkcollector.Claim, observedAt time.Time, state sdkco
 
 // log writes one structured stderr line per call. It carries the component
 // identity, outcome, and counts only: claim values (scope IDs, image
-// references, paths, digests) never appear in logs.
-func (r Runner) log(analyzer scannerworker.AnalyzerKind, state sdkcollector.ResultState, page, facts, total int, class string) {
+// references, paths, digests) never appear in logs. observed_at is the claim
+// observation time every fact of the claim carries, next to "at", the clock
+// of this call, so an operator can confirm from stderr alone that every page
+// of one claim shares one observed_at.
+func (r Runner) log(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class string) {
 	if r.Stderr == nil {
 		return
 	}
 	record := map[string]any{
-		"component": r.ComponentID,
-		"analyzer":  string(analyzer),
-		"state":     string(state),
-		"page":      page,
-		"facts":     facts,
-		"total":     total,
-		"at":        r.clock().Format(time.RFC3339Nano),
+		"component":   r.ComponentID,
+		"analyzer":    string(analyzer),
+		"state":       string(state),
+		"page":        page,
+		"facts":       facts,
+		"total":       total,
+		"at":          r.clock().Format(time.RFC3339Nano),
+		"observed_at": observedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if class != "" {
 		record["failure_class"] = class

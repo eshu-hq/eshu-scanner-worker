@@ -26,7 +26,6 @@ func analyzeWithProvider(t *testing.T, provider osruntime.SnapshotProvider, muta
 		CollectorInstanceID: "scanner-worker-image",
 		Targets:             []TargetConfig{{ScopeID: input.Target.ScopeID, RootFSPath: t.TempDir(), ImageDigest: testImageDigest}},
 		Provider:            provider,
-		Now:                 fixedNow,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
@@ -231,7 +230,6 @@ func TestRootFSFallbackGivesUpWithoutEvidence(t *testing.T) {
 			CollectorInstanceID: "scanner-worker-image",
 			Targets:             []TargetConfig{{ScopeID: input.Target.ScopeID, RootFSPath: root, ImageDigest: testImageDigest}},
 			Provider:            fixedSnapshots{err: osruntime.ErrTargetUnavailable},
-			Now:                 fixedNow,
 		})
 		if err != nil {
 			t.Fatalf("%s: NewAnalyzer() error = %v", name, err)

@@ -119,22 +119,21 @@ func projectEnvelopes(t *testing.T, envelopes []facts.Envelope) []sdkcollector.F
 // osruntime component: 50,000 facts at the real 4,128,768-byte bound,
 // reassembled equal to one direct analysis byte for byte.
 //
-// The snapshot time is pinned so every stateless call sees the same input.
-// With the wall-clock LocalRootFSProvider the split can drift between calls;
-// that defect is tracked in eshu-hq/eshu-scanner-worker#33.
+// It reads through the real LocalRootFSProvider with no pin: every fact
+// carries the claim observation time, so the split cannot drift between the
+// stateless per-page calls (eshu-hq/eshu-scanner-worker#33).
 func TestOSRuntimeHostileFullRangePaging(t *testing.T) {
 	t.Parallel()
 
 	root := parityRootFS(t, hostileFactCount)
-	pinned := pinnedSnapshotProvider{at: parityCaptureTime(t)}
 	config := map[string]any{
 		"targets":            []any{map[string]any{"scope_id": parityScopeID, "rootfs_path": root, "source_uri": paritySourceURI, "source_record_id": paritySourceRecordID}},
 		"acceptance_unit_id": parityAcceptanceUnitID,
 	}
 	got := hostileRun(t, IDOSRuntime, parityClaim(), config, func(stdin []byte, stdout *bytes.Buffer) Runner {
-		return Runner{ComponentID: IDOSRuntime, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: parityObservedAt, snapshots: pinned}
+		return Runner{ComponentID: IDOSRuntime, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: parityObservedAt}
 	}, hostileFactCount)
-	assertSameFacts(t, "osruntime", got, directPinnedOSRuntimeFacts(t, root, pinned))
+	assertSameFacts(t, "osruntime", got, directOSRuntimeFacts(t, root))
 }
 
 // TestImageHostileFullRangePaging is the #9380 re-run for the image
@@ -143,18 +142,17 @@ func TestImageHostileFullRangePaging(t *testing.T) {
 	t.Parallel()
 
 	root := parityRootFS(t, hostileFactCount-1)
-	pinned := pinnedSnapshotProvider{at: parityImageCaptureTime(t)}
 	targets := parityImageTargets(root)
 	config := map[string]any{"targets": []any{targets[0]}, "acceptance_unit_id": parityAcceptanceUnitID}
 	got := hostileRun(t, IDImage, parityImageClaim(), config, func(stdin []byte, stdout *bytes.Buffer) Runner {
-		return Runner{ComponentID: IDImage, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: parityObservedAt, snapshots: pinned}
+		return Runner{ComponentID: IDImage, Stdin: bytes.NewReader(stdin), Stdout: stdout, Clock: parityObservedAt}
 	}, hostileFactCount)
 
 	input, err := claimInput(parityImageClaim(), Config{AcceptanceUnitID: parityAcceptanceUnitID}, scannerworker.AnalyzerImageUnpacking, parityObservedAt())
 	if err != nil {
 		t.Fatalf("claimInput() error = %v", err)
 	}
-	analyzer, err := imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{CollectorInstanceID: parityInstanceID, Targets: targets, Provider: pinned, Now: parityObservedAt})
+	analyzer, err := imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{CollectorInstanceID: parityInstanceID, Targets: targets})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
 	}
@@ -203,9 +201,9 @@ func TestSBOMHostileFullRangePaging(t *testing.T) {
 	assertSameFacts(t, "sbom", got, projectEnvelopes(t, result.Output.Facts))
 }
 
-// directPinnedOSRuntimeFacts runs one direct analysis with the same pinned
-// snapshot and projects it to SDK wire facts.
-func directPinnedOSRuntimeFacts(t *testing.T, root string, provider osruntime.SnapshotProvider) []sdkcollector.Fact {
+// directOSRuntimeFacts runs one direct analysis with the default provider and
+// projects it to SDK wire facts.
+func directOSRuntimeFacts(t *testing.T, root string) []sdkcollector.Fact {
 	t.Helper()
 
 	input, err := claimInput(parityClaim(), Config{AcceptanceUnitID: parityAcceptanceUnitID}, scannerworker.AnalyzerOSPackageExtraction, parityObservedAt())
@@ -215,7 +213,6 @@ func directPinnedOSRuntimeFacts(t *testing.T, root string, provider osruntime.Sn
 	analyzer, err := osruntime.NewAnalyzer(osruntime.AnalyzerConfig{
 		CollectorInstanceID: parityInstanceID,
 		Targets:             parityTargets(root),
-		Provider:            provider,
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
