@@ -32,7 +32,7 @@ Component lane, first slice (os_package_extraction):
   (`NewClaimInput*`, `TargetScopeFromWorkItem`, `TargetScope.validateFor`)
   are not ported: the component lane derives input from the SDK claim
   through `TargetScopeForComponent`.
-- `scannerworker/component/`: `paging.go`, `config.go`, `runner.go`,
+- `scannerworker/component/`: `paging.go`, `config.go`, `runner.go`, `runner_build.go`,
   `runner_failure.go`, `ids.go`. Paging, the request continuation, and the
   result page envelope now use eshu-sdk/collector `v0.2.0-rc.3` types.
 - `scannerworker/imageanalyzer/` (second slice): analyzer, layer and rootfs
