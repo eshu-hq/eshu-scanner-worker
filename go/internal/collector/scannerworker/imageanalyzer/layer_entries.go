@@ -7,7 +7,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
@@ -49,23 +49,32 @@ func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) er
 	if len(header.Name) > maxLayerEntryNameBytes {
 		return fmt.Errorf("%w: layer entry name too long", errInputLimitExceeded)
 	}
+	if header.Typeflag == tar.TypeXGlobalHeader {
+		return nil
+	}
 	name := cleanLayerName(header.Name)
 	if name == "" {
 		return nil
 	}
-	if base := filepath.Base(name); strings.HasPrefix(base, whiteoutPrefix) {
+	if base := path.Base(name); strings.HasPrefix(base, whiteoutPrefix) {
 		r.applyWhiteout(name)
 		return nil
 	}
-	if header.Typeflag != tar.TypeReg {
+	if header.Typeflag == tar.TypeDir {
+		// A directory over a directory only replaces attributes; over a
+		// file it replaces the file. Children from lower layers stay.
+		r.removeEvidence(name, true, false, r.layer+1)
 		return nil
 	}
-	if !isPackageEvidencePath(name) {
+	// Any other entry replaces whatever was at its path, children included.
+	r.removeEvidence(name, true, true, r.layer+1)
+	if header.Typeflag != tar.TypeReg || !isPackageEvidencePath(name) {
 		return nil
 	}
 	if isRPMDatabasePath(name) && header.Size > ospackagevulnerability.RPMDatabaseByteLimit {
 		r.files[name] = nil
 		r.oversizedRPM[name] = true
+		r.pathLayer[name] = r.layer
 		return nil
 	}
 	if header.Size > r.remainingBytes {
@@ -84,29 +93,67 @@ func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) er
 	}
 	r.files[name] = content
 	delete(r.oversizedRPM, name)
+	r.pathLayer[name] = r.layer
 	return nil
 }
 
+// applyWhiteout applies an OCI whiteout entry (image-spec layer.md,
+// "Whiteouts" and "Opaque Whiteout"). It reaches only paths from lower
+// layers, so a file in the same layer survives whatever the tar order.
 func (r *layerSnapshotReader) applyWhiteout(name string) {
-	dir := filepath.Dir(name)
-	base := filepath.Base(name)
+	dir := path.Dir(name)
+	base := path.Base(name)
 	if base == opaqueWhiteout {
-		cleanDir := filepath.ToSlash(filepath.Clean(dir))
-		for existing := range r.files {
-			if filepath.Dir(existing) == cleanDir {
-				delete(r.files, existing)
-				delete(r.oversizedRPM, existing)
-			}
+		// Hide every descendant of the marker's directory; "." is the root.
+		prefix := dir
+		if prefix == "." {
+			prefix = ""
 		}
+		r.removeEvidence(prefix, false, true, r.layer)
 		return
 	}
-	target := filepath.ToSlash(filepath.Join(dir, strings.TrimPrefix(base, whiteoutPrefix)))
-	delete(r.files, target)
-	delete(r.oversizedRPM, target)
+	target := strings.TrimPrefix(base, whiteoutPrefix)
+	if target == "" || target == "." || target == ".." {
+		// A whiteout is the prefix plus the basename to delete (layer.md,
+		// "Whiteouts"). A bare ".wh." names nothing, and ".wh.." or ".wh..."
+		// would name the directory or its parent, which containerd rejects
+		// as an invalid whiteout name. AUFS ".wh..wh.*" metadata names a
+		// path no filesystem can hold, so removing it is already a no-op.
+		return
+	}
+	r.removeEvidence(path.Join(dir, target), true, true, r.layer)
 }
 
+// removeEvidence drops tracked package evidence at prefix (when self is set)
+// and below it (when descendants is set) that came from a layer older than
+// beforeLayer. An empty prefix with descendants set means every path. Only
+// package evidence paths are tracked, so the walk is a few map entries.
+func (r *layerSnapshotReader) removeEvidence(prefix string, self, descendants bool, beforeLayer int) {
+	if len(r.pathLayer) == 0 {
+		return
+	}
+	under := prefix + "/"
+	for tracked, layer := range r.pathLayer {
+		if layer >= beforeLayer {
+			continue
+		}
+		match := self && tracked == prefix
+		if !match && descendants {
+			match = prefix == "" || strings.HasPrefix(tracked, under)
+		}
+		if match {
+			delete(r.files, tracked)
+			delete(r.oversizedRPM, tracked)
+			delete(r.pathLayer, tracked)
+		}
+	}
+}
+
+// cleanLayerName returns the slash-separated, root-relative form of a tar
+// entry name, or "" when the name escapes the root. It does not trim
+// whitespace: a name with a space is a different path.
 func cleanLayerName(name string) string {
-	cleaned := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(name), "/")))
+	cleaned := path.Clean(strings.TrimLeft(name, "/"))
 	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
 		return ""
 	}
