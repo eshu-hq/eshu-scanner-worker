@@ -138,6 +138,7 @@ func TestBinaryServesOnePageOverStdio(t *testing.T) {
 			"targets": []any{map[string]any{
 				"scope_id":        scopeID,
 				"rootfs_path":     root,
+				"source_uri":      "oci://registry.example/smoke@sha256:deadbeef",
 				"image_reference": "registry.example/smoke:1.0",
 				"image_digest":    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			}},

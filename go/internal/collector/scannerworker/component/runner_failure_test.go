@@ -154,3 +154,45 @@ func TestRunnerSilentCleanOutputFailsTerminal(t *testing.T) {
 		t.Fatalf("state=%q statuses=%+v, want terminal component_invalid_output", page.State, page.Statuses)
 	}
 }
+
+// TestRunnerNeverEmitsEmptySourceURI proves a fact whose source_ref.uri is
+// empty (no source_uri configured, or one the sanitizer had to drop) fails
+// the claim terminal instead of shipping a page the host validator rejects.
+// A registry host:port digest ref is kept and completes.
+func TestRunnerNeverEmitsEmptySourceURI(t *testing.T) {
+	t.Parallel()
+
+	root := parityRootFS(t, 2)
+	claim := testClaim(IDOSRuntime, testImageScopeID, "scanner-worker:generation-test")
+	for name, uri := range map[string]string{"absent": "", "credential dropped": "svc:user:secret/x@h.internal"} {
+		config := osruntimeConfig(root, 0)
+		target := config["targets"].([]any)[0].(map[string]any)
+		target["source_uri"] = uri
+		page, _ := runRaw(t, IDOSRuntime, testRequest(t, claim, config))
+		if page.State != sdkcollector.ResultTerminal || page.Statuses[0].FailureClass != "component_invalid_output" || len(page.Facts) != 0 {
+			t.Fatalf("%s: state=%q statuses=%+v facts=%d, want terminal component_invalid_output", name, page.State, page.Statuses, len(page.Facts))
+		}
+	}
+	config := osruntimeConfig(root, 0)
+	ref := "localhost:5000/app@sha256:" + strings.Repeat("a", 64)
+	config["targets"].([]any)[0].(map[string]any)["source_uri"] = ref
+	page, _ := runRaw(t, IDOSRuntime, testRequest(t, claim, config))
+	if page.State != sdkcollector.ResultComplete || len(page.Facts) == 0 {
+		t.Fatalf("registry ref: state=%q facts=%d, want complete", page.State, len(page.Facts))
+	}
+	for i, fact := range page.Facts {
+		if fact.SourceRef.URI != ref {
+			t.Fatalf("facts[%d].source_ref.uri = %q, want %q", i, fact.SourceRef.URI, ref)
+		}
+	}
+	validator := sdkcollector.NewValidator(sdkcollector.Contract{
+		ProtocolVersion: protocolVersion,
+		Facts: []sdkcollector.FactDeclaration{{
+			Kind: "vulnerability.os_package", SchemaVersions: []string{"1.0.0"},
+			SourceConfidence: []sdkcollector.SourceConfidence{sdkcollector.SourceConfidenceReported},
+		}},
+	})
+	if _, err := validator.ValidateResult(page); err != nil {
+		t.Fatalf("ValidateResult(registry ref page) error = %v", err)
+	}
+}

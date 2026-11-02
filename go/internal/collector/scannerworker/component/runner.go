@@ -191,7 +191,11 @@ func (r Runner) Run(ctx context.Context) error {
 	wireFacts := make([]sdkcollector.Fact, 0, len(page.Facts))
 	for _, envelope := range page.Facts {
 		wire, err := factenvelope.SDKFactFromInternal(envelope)
-		if err != nil {
+		// The SDK contract requires a non-empty source_ref.uri. An empty one
+		// (no source_uri configured, or one the sanitizer had to drop because
+		// it carried a credential) fails the claim terminal here instead of
+		// shipping a "complete" page the host would reject.
+		if err != nil || strings.TrimSpace(wire.SourceRef.URI) == "" {
 			r.log(analyzer, "terminal", 0, 0, 0, "component_invalid_output")
 			return r.emitTerminal(req.Claim, observedAt, "component_invalid_output")
 		}
