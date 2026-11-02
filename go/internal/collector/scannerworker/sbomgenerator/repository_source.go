@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -186,14 +187,37 @@ func (r *repositoryManifestReader) collect(ctx context.Context) ([]Component, []
 	return components, warnings, nil
 }
 
+// readManifest opens one manifest without blocking and reads it under the
+// remaining input-byte budget. The walk checked the entry type earlier, so
+// the file may since have been swapped for a FIFO, device, directory, or
+// symlink. The open is non-blocking and does not follow a final symlink, and
+// the regular-file test runs on the opened handle, so the mode test and the
+// read act on one object. A non-regular file fails closed as an unsupported
+// target. Reads stop one byte past the budget, so a file that grew after the
+// size check cannot allocate without bound.
 func (r *repositoryManifestReader) readManifest(path string) ([]byte, error) {
-	info, err := os.Stat(path)
+	file, err := os.OpenFile(path, manifestOpenFlags, 0) // #nosec G304 -- path is produced by filepath.WalkDir over an indexed repository working tree, not from untrusted external input
+	if err != nil {
+		if isSymlinkOpenError(err) {
+			return nil, r.notRegular(err)
+		}
+		return nil, scannerworker.NewRetryableAnalyzerFailure(
+			scannerworker.FailureClassTargetUnavailable,
+			r.usage(),
+			err,
+		)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
 	if err != nil {
 		return nil, scannerworker.NewRetryableAnalyzerFailure(
 			scannerworker.FailureClassTargetUnavailable,
 			r.usage(),
 			err,
 		)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, r.notRegular(nil)
 	}
 	if info.Size() > r.remainingBytes {
 		return nil, scannerworker.NewTerminalAnalyzerFailure(
@@ -202,7 +226,7 @@ func (r *repositoryManifestReader) readManifest(path string) ([]byte, error) {
 			nil,
 		)
 	}
-	body, err := os.ReadFile(path) // #nosec G304 -- path is produced by filepath.WalkDir over an indexed repository working tree, not from untrusted external input
+	body, err := io.ReadAll(io.LimitReader(file, r.remainingBytes+1))
 	if err != nil {
 		return nil, scannerworker.NewRetryableAnalyzerFailure(
 			scannerworker.FailureClassTargetUnavailable,
@@ -223,6 +247,17 @@ func (r *repositoryManifestReader) readManifest(path string) ([]byte, error) {
 		r.peakBytes = int64(len(body))
 	}
 	return body, nil
+}
+
+// notRegular reports a manifest path that is no longer a regular file. It is
+// terminal: the walk already saw a regular file there, so a changed type is a
+// hostile or corrupt tree, not a transient read error.
+func (r *repositoryManifestReader) notRegular(cause error) error {
+	return scannerworker.NewTerminalAnalyzerFailure(
+		scannerworker.FailureClassUnsupportedTarget,
+		r.usage(),
+		cause,
+	)
 }
 
 func (r repositoryManifestReader) usage() scannerworker.ResourceUsage {

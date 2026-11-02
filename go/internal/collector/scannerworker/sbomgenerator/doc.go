@@ -17,6 +17,11 @@
 // the sbom-attestation collector, which fetches already-published SBOM and
 // attestation documents.
 //
+// The repository source reads each manifest through a non-blocking,
+// no-follow open and checks the opened handle is a regular file, so a path
+// swapped for a FIFO, device, or symlink after the directory walk fails
+// closed as an unsupported target instead of blocking the claim.
+//
 // The runtime owns filesystem and archive boundaries; this package owns the
 // source-fact contract, the limit-check failure vocabulary, and the
 // privacy-safe analyzer-failure shape consumed by the scanner-worker claim

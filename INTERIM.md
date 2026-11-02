@@ -84,6 +84,12 @@ Component lane, first slice (os_package_extraction):
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
   rejection tests in `ospackagevulnerability`, `osruntime`, and
   `imageanalyzer`.
+- SBOM repository manifests (eshu-hq/eshu-scanner-worker#37, fixed here, a
+  deliberate delta from the eshu source): `sbomgenerator` opens each manifest
+  non-blocking without following a final symlink and tests the opened handle
+  for a regular file, so a file swapped for a FIFO, device, directory, or
+  symlink after the walk fails closed as terminal `unsupported_target`
+  instead of blocking the claim. Reads stop one byte past the byte budget.
 - Known defects (pre-existing in the eshu source, behavior unchanged here):
   - eshu-hq/eshu-scanner-worker#33: wall-clock snapshot time can shift page
     boundaries between calls.
@@ -93,8 +99,6 @@ Component lane, first slice (os_package_extraction):
     cancellation inside a long layer entry.
   - eshu-hq/eshu-scanner-worker#36: layer whiteouts and opaque markers do
     not follow OCI semantics.
-  - eshu-hq/eshu-scanner-worker#37: SBOM repository files open by path
-    after the walk.
 
 Core-import replacements:
 
