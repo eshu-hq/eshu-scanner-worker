@@ -26,8 +26,11 @@
 // the component stderr line.
 //
 // Layers apply in order with OCI image-spec layer semantics (layer.md,
-// "Whiteouts", "Opaque Whiteout", "Changeset over existing files"): a
-// whiteout or opaque marker removes the path and every descendant from lower
-// layers only, and an entry of any type replaces what lower layers held at
-// its path. Entry names are not trimmed; leading slashes are stripped.
+// "Whiteouts", "Opaque Whiteout", "Changeset over existing files"). A whiteout
+// or opaque marker removes the path and every descendant from lower layers
+// only, so a file in the same layer survives it in any tar order. An entry
+// replaces what was at its path and below it, whether that came from a lower
+// layer or earlier in the same layer (extraction order); a directory entry
+// replaces only a file at that path and keeps the children. Entry names are
+// not trimmed; leading slashes are stripped.
 package imageanalyzer
