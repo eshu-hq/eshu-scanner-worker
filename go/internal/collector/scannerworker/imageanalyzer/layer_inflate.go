@@ -5,6 +5,7 @@ package imageanalyzer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -75,10 +76,15 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 	}
 	// Ask for one byte past the room so an over-budget stream is detected
 	// without ever counting bytes beyond the budget.
-	if int64(len(p)) > room+1 {
+	// The comparison runs first so room+1 is never evaluated near MaxInt64.
+	if room < int64(len(p))-1 {
 		p = p[:room+1]
 	}
 	n, err := g.src.Read(p)
+	if err != nil && errors.Is(err, errSourceUnavailable) {
+		g.err = err
+		return n, err
+	}
 	if int64(n) > room {
 		// Byte counts are privacy-safe and let an operator tell a bomb from a
 		// large legitimate image.
@@ -91,4 +97,20 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 	}
 	g.budget.inflatedBytes += int64(n)
 	return n, err
+}
+
+// ctxReader checks the context on every read of the compressed layer file.
+// gzip skips empty members inside one Read without producing output, so the
+// guard above it never runs during such a flood; this reader sits below gzip
+// and does.
+type ctxReader struct {
+	ctx context.Context
+	src io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, fmt.Errorf("%w: context canceled", errSourceUnavailable)
+	}
+	return c.src.Read(p)
 }

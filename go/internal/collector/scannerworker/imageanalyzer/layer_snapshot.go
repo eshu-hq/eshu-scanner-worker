@@ -166,6 +166,9 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	}
 	tarReader, guard, closeFn, err := r.newLayerTarReader(ctx, file)
 	if err != nil {
+		if errors.Is(err, errSourceUnavailable) {
+			return err
+		}
 		return fmt.Errorf("%w: unsupported layer archive", errUnsupportedTarget)
 	}
 	defer closeFn()
@@ -199,11 +202,14 @@ func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.Fi
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, nil, func() {}, err
 	}
-	gzipReader, err := gzip.NewReader(file)
+	gzipReader, err := gzip.NewReader(ctxReader{ctx: ctx, src: file})
 	if err == nil {
 		guard := &inflateGuard{ctx: ctx, src: gzipReader, budget: r}
 		r.meter = newMetaMeter(func() int64 { return r.inflatedBytes })
 		return tar.NewReader(guard), guard, func() { _ = gzipReader.Close() }, nil
+	}
+	if errors.Is(err, errSourceUnavailable) {
+		return nil, nil, func() {}, err
 	}
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 		return nil, nil, func() {}, seekErr
