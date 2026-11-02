@@ -66,7 +66,7 @@ func newMetaMeter(pos func() int64) metaMeter {
 }
 
 // blocks returns how many 512-byte record blocks preceded header h. A zero
-// meter, or a sparse file whose body is shorter than its Size, returns 0.
+// meter returns 0.
 func (m *metaMeter) blocks(h *tar.Header) int64 {
 	if m.pos == nil {
 		return 0
