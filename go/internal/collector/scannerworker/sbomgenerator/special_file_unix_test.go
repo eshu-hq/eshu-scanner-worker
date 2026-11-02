@@ -77,8 +77,8 @@ func TestReadManifestRejectsFIFOSwappedInAfterWalk(t *testing.T) {
 
 // TestReadManifestRejectsDeviceSwappedInAfterWalk proves a character device
 // at a manifest path is rejected on the handle. /dev/null reads as empty, so
-// today it is accepted silently; /dev/zero would stream without end and is
-// deliberately not used.
+// before the handle check it was accepted silently; /dev/zero would stream
+// without end and is deliberately not used.
 func TestReadManifestRejectsDeviceSwappedInAfterWalk(t *testing.T) {
 	t.Parallel()
 

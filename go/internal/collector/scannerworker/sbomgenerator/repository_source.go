@@ -189,13 +189,15 @@ func (r *repositoryManifestReader) collect(ctx context.Context) ([]Component, []
 
 // readManifest opens one manifest without blocking and reads it under the
 // remaining input-byte budget. The walk checked the entry type earlier, so
-// the file may since have been swapped for a FIFO, device, directory, or
-// symlink. The open is non-blocking and does not follow a final symlink, and
-// the regular-file test runs on the opened handle, so the mode test and the
-// read act on one object. A non-regular file fails closed as an unsupported
-// target. Only the final path component is guarded: a parent directory
-// swapped for a symlink after the walk is still followed. Reads stop one byte past the budget, so a file that grew after the
-// size check cannot allocate without bound.
+// the file may since have been swapped for a FIFO, device, socket,
+// directory, or symlink. The open is non-blocking, and the regular-file test
+// runs on the opened handle, so the mode test and the read act on one
+// object. A non-regular file fails closed as an unsupported target. On unix
+// builds the open also refuses a final symlink (O_NOFOLLOW); non-unix builds
+// have no such flag, so a symlink to a regular file is read there. Only the
+// final path component is guarded: a parent directory swapped for a symlink
+// after the walk is still followed. Reads stop one byte past the budget, so
+// a file that grew after the size check cannot allocate without bound.
 func (r *repositoryManifestReader) readManifest(path string) ([]byte, error) {
 	file, err := os.OpenFile(path, manifestOpenFlags, 0) // #nosec G304 -- path is produced by filepath.WalkDir over an indexed repository working tree, not from untrusted external input
 	if err != nil {

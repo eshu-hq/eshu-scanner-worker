@@ -17,12 +17,15 @@
 // the sbom-attestation collector, which fetches already-published SBOM and
 // attestation documents.
 //
-// The repository source reads each manifest through a non-blocking,
-// no-follow open and checks the opened handle is a regular file, so a path
-// swapped for a FIFO, device, socket, directory, or symlink after the
-// directory walk fails closed as an unsupported target instead of blocking
-// the claim. The guard covers the final path component only; a parent
-// directory swapped for a symlink after the walk is still followed.
+// The repository source reads each manifest through a non-blocking open and
+// checks the opened handle is a regular file, so a path swapped for a FIFO,
+// device, socket, or directory after the directory walk fails closed as an
+// unsupported target instead of blocking the claim. On unix builds the open
+// also refuses to follow a final symlink, so a swapped-in symlink fails the
+// same way. Non-unix builds have no no-follow open: a manifest swapped for a
+// symlink to a regular file is read there. The guard covers the final path
+// component only; a parent directory swapped for a symlink after the walk is
+// still followed.
 //
 // The runtime owns filesystem and archive boundaries; this package owns the
 // source-fact contract, the limit-check failure vocabulary, and the
