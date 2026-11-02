@@ -57,6 +57,14 @@ Component lane, first slice (os_package_extraction):
   the admission pins and `VerifySeededArtifact`. `reconcile.go` and
   `RequiredGrants` stay core-side for that reason.
   `component/testdata/manifests` pins byte equality with core's manifests.
+- Build and release (fifth slice): `Dockerfile` with stages
+  `scanner-image`, `scanner-sbom`, `scanner-osruntime` (static pure-Go
+  binaries on distroless, at the path the chart's seed init container
+  executes); `.github/workflows/release.yml` publishes
+  `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` by digest for amd64 and
+  arm64 with SLSA provenance, cosign signature, and SBOM attestation, all
+  verified in the job; `SECURITY.md` with the version-pair table. The first
+  publish and the eshu re-pin have not happened.
 - Hostile-input proof: `component/hostile_osruntime_test.go` (the #9380
   full-range run: 50,000 facts at the 4,128,768-byte bound); repository_url
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
@@ -80,8 +88,8 @@ Core-import replacements:
 
 | Piece | Blocker | Owning work |
 | --- | --- | --- |
-| `Dockerfile`, publish workflow, `SECURITY.md` | next slice | eshu-hq/eshu#8878 box 10 |
 | `go/cmd/scanner-worker/` + the `scannerworker` claim loop | `internal/app`, `runtime.OpenPostgres`, postgres claim + ingest stores, `workflow`, `telemetry` | eshu-hq/eshu#8877 + eshu-hq/eshu#9376 |
 
-Production cutover, rollback rehearsal, and the satellite publish remain
-NOT_CHECKED.
+Still NOT_CHECKED: the first satellite publish, the eshu re-pin to its
+digests, production cutover, and rollback rehearsal. The standalone
+`scanner-worker` claim loop stays core-side (last table row).
