@@ -173,6 +173,15 @@ func TestValidateFactOutputRejectsEachDefect(t *testing.T) {
 			t.Fatalf("%s: ValidateFactOutput() error = nil, want rejection", name)
 		}
 	}
+	sbom := good()
+	sbom.FactKind = chain.SBOMDocumentFactKind
+	sbom.SchemaVersion = chain.SBOMAttestationSchemaVersionV1
+	if err := ValidateFactOutput(input, FactOutput{TargetCount: 1, Facts: []facts.Envelope{sbom}}); err != nil {
+		t.Fatalf("ValidateFactOutput(sbom.document) error = %v, want SBOM source facts accepted", err)
+	}
+	if _, ok := sourceFactSchemaVersion("git.commit"); ok {
+		t.Fatal("sourceFactSchemaVersion(git.commit) ok = true, want false")
+	}
 	for _, kind := range []string{facts.ScannerWorkerAnalysisFactKind, chain.SBOMDocumentFactKind} {
 		if _, ok := sourceFactSchemaVersion(kind); !ok {
 			t.Fatalf("sourceFactSchemaVersion(%q) ok = false, want a scanner source schema", kind)

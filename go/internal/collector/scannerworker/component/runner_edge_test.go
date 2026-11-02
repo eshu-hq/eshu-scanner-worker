@@ -48,6 +48,10 @@ func TestRunnerTransportFailuresAreGoErrors(t *testing.T) {
 func TestRunnerUndecodableTargetsFailTerminal(t *testing.T) {
 	t.Parallel()
 
+	for _, id := range []string{IDOSRuntime, IDImage} {
+		claim := testClaim(id, testImageScopeID, "gen-1")
+		runTerminal(t, id, testRequest(t, claim, map[string]any{"targets": []any{42}, "acceptance_unit_id": testImageAcceptUID}), "component_failed")
+	}
 	claim := testClaim(IDOSRuntime, testImageScopeID, "gen-1")
 	for name, targets := range map[string][]any{
 		"wrong type":    {42},
