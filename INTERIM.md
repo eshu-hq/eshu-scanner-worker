@@ -35,9 +35,21 @@ Component lane, first slice (os_package_extraction):
 - `scannerworker/component/`: `paging.go`, `config.go`, `runner.go`,
   `runner_failure.go`, `ids.go`. Paging, the request continuation, and the
   result page envelope now use eshu-sdk/collector `v0.2.0-rc.3` types.
-- Parity proof: `component/parity_osruntime_test.go` reproduces the core
-  golden `testdata/scanner-parity/osruntime.json` byte for byte, and the
-  runner's v1alpha3 pages equal the pages built from that golden.
+- `scannerworker/imageanalyzer/` (second slice): analyzer, layer and rootfs
+  snapshots, analysis and warning facts. `AnalyzerConfig.Provider` is new
+  (default `osruntime.LocalRootFSProvider`, the provider the in-tree code
+  hard-coded) so the parity tests can pin the captured snapshot time.
+- Parity proof: `component/parity_osruntime_test.go` and
+  `component/parity_image_test.go` reproduce the core goldens
+  `testdata/scanner-parity/{osruntime,image}.json` byte for byte, and the
+  runner's v1alpha3 pages equal the pages built from each golden.
+- Hostile-input proof: `component/hostile_osruntime_test.go` (the #9380
+  full-range run: 50,000 facts at the 4,128,768-byte bound); repository_url
+  sanitization, opaque-credential differential, and FIFO/symlink rootfs
+  rejection tests in `ospackagevulnerability`, `osruntime`, and
+  `imageanalyzer`.
+- Known defect: wall-clock snapshot time can shift page boundaries between
+  calls (eshu-hq/eshu-scanner-worker#33).
 
 Core-import replacements:
 
@@ -53,7 +65,6 @@ Core-import replacements:
 
 | Piece | Blocker | Owning work |
 | --- | --- | --- |
-| `scannerworker/imageanalyzer/` | needs `scannerworker/warning_analyzer` shape + `factschema/scannerworker/v1` (SDK) | eshu-hq/eshu#8878 box 10, next slice |
 | `scannerworker/sbomgenerator/` | needs a `packageidentity` local copy (SDK has none) | eshu-hq/eshu#8878 box 10, next slice |
 | `scannerworker/component/` `manifest.go`, `seed.go`, `reconcile.go` | need a local subset of core `internal/component` manifest types | eshu-hq/eshu#8878 box 10 |
 | `go/cmd/scanner-component-{image,sbom,osruntime}/` | need `buildinfo` local copy + the manifest/seed slice | eshu-hq/eshu#8878 box 10 |

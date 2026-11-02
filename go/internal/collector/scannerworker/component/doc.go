@@ -7,7 +7,7 @@
 // separate component process. The page envelope, request continuation, and
 // page bound come from the published eshu-sdk/collector module.
 //
-// Port status (eshu-hq/eshu#8878 box 10): os_package_extraction is ported
-// and proven byte-identical to the committed core parity golden;
-// image_unpacking and sbom_generation fail closed until their slices land.
+// Port status (eshu-hq/eshu#8878 box 10): os_package_extraction and
+// image_unpacking are ported and proven byte-identical to the committed core
+// parity goldens; sbom_generation fails closed until its slice lands.
 package component

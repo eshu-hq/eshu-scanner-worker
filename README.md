@@ -9,10 +9,10 @@ Eshu scanner execution and worker lifecycle. Pre-release: holds no cutover autho
 Go module `github.com/eshu-hq/eshu-scanner-worker`: the scanner component
 lane ported from Eshu core (eshu-hq/eshu#8878 box 10). Landed so far:
 analyzer kinds and lanes, the OS package parsers and envelopes, the
-`osruntime` analyzer, and the v1alpha3 stdio runner
+`osruntime` and image analyzers, and the v1alpha3 stdio runner
 (`go/internal/collector/scannerworker/component`), proven byte-identical
-to the core parity golden. The image and SBOM analyzers, the component
-commands, and the image publish follow; see [INTERIM.md](INTERIM.md).
+to the core parity goldens. The SBOM analyzer, the component commands, and
+the image publish follow; see [INTERIM.md](INTERIM.md).
 
 ```sh
 make ci   # lint + test + race, same commands CI runs

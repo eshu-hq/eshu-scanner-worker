@@ -277,7 +277,7 @@ func TestRunnerMalformedClaimEmitsTerminal(t *testing.T) {
 func TestRunnerUnportedAnalyzerFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	for _, id := range []string{IDImage, IDSBOM} {
+	for _, id := range []string{IDSBOM} {
 		claim := testClaim(id, testImageScopeID, "gen-1")
 		runTerminal(t, id, testRequest(t, claim, osruntimeConfig("/unused", 0)), "component_failed")
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/factenvelope"
 )
 
@@ -52,9 +53,10 @@ type Runner struct {
 	// Clock overrides the observation clock. Nil uses time.Now().UTC.
 	Clock func() time.Time
 
-	// snapshots overrides the OS package snapshot provider. Nil uses the
-	// analyzer default (osruntime.LocalRootFSProvider). Test seam only: the
-	// parity tests pin the wall-clock snapshot time the goldens captured.
+	// snapshots overrides the rootfs snapshot provider the osruntime and
+	// image analyzers read through. Nil uses the analyzer default
+	// (osruntime.LocalRootFSProvider). Test seam only: the parity tests pin
+	// the wall-clock snapshot time the goldens captured.
 	snapshots osruntime.SnapshotProvider
 }
 
@@ -297,11 +299,22 @@ func claimInput(claim sdkcollector.Claim, config Config, analyzer scannerworker.
 // binary accepts exactly what the in-tree worker accepted. A nil provider
 // keeps the analyzer default.
 //
-// Port status (eshu-hq/eshu#8878 box 10): os_package_extraction is ported;
-// image_unpacking and sbom_generation land in the next port slices and fail
-// closed here until then.
+// Port status (eshu-hq/eshu#8878 box 10): os_package_extraction and
+// image_unpacking are ported; sbom_generation lands in the next port slice
+// and fails closed here until then.
 func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim, config Config, now time.Time, provider osruntime.SnapshotProvider) (scannerworker.Analyzer, error) {
 	switch analyzer {
+	case scannerworker.AnalyzerImageUnpacking:
+		var targets []imageanalyzer.TargetConfig
+		if err := decodeTargets(config.Targets, &targets); err != nil {
+			return nil, err
+		}
+		return imageanalyzer.NewAnalyzer(imageanalyzer.AnalyzerConfig{
+			CollectorInstanceID: claim.InstanceID,
+			Targets:             targets,
+			Provider:            provider,
+			Now:                 func() time.Time { return now },
+		})
 	case scannerworker.AnalyzerOSPackageExtraction:
 		var targets []osruntime.TargetConfig
 		if err := decodeTargets(config.Targets, &targets); err != nil {
