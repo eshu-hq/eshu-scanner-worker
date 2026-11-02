@@ -6,12 +6,13 @@ Eshu scanner execution and worker lifecycle. Pre-release: holds no cutover autho
 
 ## Layout
 
-First Go module (`github.com/eshu-hq/eshu-scanner-worker`): the
-dependency-free scanner pieces relocated byte-identical from Eshu core —
-analyzer kinds and lanes (`go/internal/collector/scannerworker`) and OS
-package parsers (`go/internal/collector/ospackagevulnerability`). The
-claim loop, analyzers, envelopes, and binary stay core-side until the
-claim-client and public-contract gates land; see [INTERIM.md](INTERIM.md).
+Go module `github.com/eshu-hq/eshu-scanner-worker`: the scanner component
+lane ported from Eshu core (eshu-hq/eshu#8878 box 10). Landed so far:
+analyzer kinds and lanes, the OS package parsers and envelopes, the
+`osruntime` analyzer, and the v1alpha3 stdio runner
+(`go/internal/collector/scannerworker/component`), proven byte-identical
+to the core parity golden. The image and SBOM analyzers, the component
+commands, and the image publish follow; see [INTERIM.md](INTERIM.md).
 
 ```sh
 make ci   # lint + test + race, same commands CI runs
