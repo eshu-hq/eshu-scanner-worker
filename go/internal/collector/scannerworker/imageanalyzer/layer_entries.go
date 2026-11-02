@@ -24,10 +24,13 @@ const (
 func (r *layerSnapshotReader) handleEntry(header *tar.Header, body io.Reader) error {
 	// Every entry costs budget before any branching, so header-only entries
 	// (whiteouts, links, directories, unsafe names) cannot bypass MaxFiles.
-	if r.filesSeen >= r.maxFiles {
+	// PAX and GNU long-name records fold into this header inside tar.Reader;
+	// each 512-byte block they occupy costs one more unit.
+	cost := 1 + r.meter.blocks(header)
+	if r.filesSeen+cost > r.maxFiles {
 		return fmt.Errorf("%w: layer file budget exceeded", errFileLimitExceeded)
 	}
-	r.filesSeen++
+	r.filesSeen += cost
 	if len(header.Name) > maxLayerEntryNameBytes {
 		return fmt.Errorf("%w: layer entry name too long", errInputLimitExceeded)
 	}

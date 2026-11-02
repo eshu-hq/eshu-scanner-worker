@@ -5,9 +5,11 @@ package imageanalyzer
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +120,7 @@ func TestLayerRejectsOversizedEntryName(t *testing.T) {
 		"whiteout": "d/.wh." + overCap,
 	} {
 		layer := writePlainTar(t, []tarEntry{{name: entryName, typeflag: tar.TypeReg}})
-		err := analyzeWithLimits(t, layer, 10)
+		err := analyzeWithLimits(t, layer, 100)
 		if err == nil {
 			t.Fatalf("%s name over the cap error = nil, want input limit failure", name)
 		}
@@ -130,7 +132,126 @@ func TestLayerRejectsOversizedEntryName(t *testing.T) {
 		{name: "lib/apk/db/installed", typeflag: tar.TypeReg, body: alpineDB},
 		{name: atCap, typeflag: tar.TypeReg},
 	})
-	if err := analyzeWithLimits(t, layer, 10); err != nil {
+	if err := analyzeWithLimits(t, layer, 100); err != nil {
 		t.Fatalf("name at the cap error = %v, want accepted", err)
+	}
+}
+
+// metaPrefix returns the PAX or GNU record blocks tar.Writer emits ahead of
+// the real header for h, with the real header block cut off.
+func metaPrefix(t *testing.T, h *tar.Header) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := tar.NewWriter(&out)
+	if err := writer.WriteHeader(h); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	raw := out.Bytes()
+	if len(raw) <= 512 {
+		t.Fatalf("header %+v produced no meta record", h)
+	}
+	return append([]byte(nil), raw[:len(raw)-512]...)
+}
+
+// metaChainLayer writes a layer of records repeated count times ahead of one
+// real entry. Each record is one PAX or GNU long-name block pair that
+// tar.Reader folds into the next header without ever returning it.
+func metaChainLayer(t *testing.T, record []byte, count int, compress bool) string {
+	t.Helper()
+	var tail bytes.Buffer
+	writer := tar.NewWriter(&tail)
+	if err := writer.WriteHeader(&tar.Header{Name: "tmp/last", Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "chain.tar")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var sink io.Writer = file
+	var gzipWriter *gzip.Writer
+	if compress {
+		gzipWriter, _ = gzip.NewWriterLevel(file, gzip.BestSpeed)
+		sink = gzipWriter
+	}
+	for i := 0; i < count; i++ {
+		if _, err := sink.Write(record); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+	if _, err := sink.Write(tail.Bytes()); err != nil {
+		t.Fatalf("Write tail: %v", err)
+	}
+	if gzipWriter != nil {
+		if err := gzipWriter.Close(); err != nil {
+			t.Fatalf("gzip Close: %v", err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("file Close: %v", err)
+	}
+	return path
+}
+
+// TestLayerMetaRecordChainCountsAgainstFileBudget reproduces the review
+// finding: PAX and GNU long-name records fold into the next header inside
+// tar.Reader, so 200,000 of them left filesSeen at 0 and returned no error.
+// Each 512-byte block they occupy now costs one file-budget unit.
+func TestLayerMetaRecordChainCountsAgainstFileBudget(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("n", 150)
+	for name, header := range map[string]*tar.Header{
+		"gnu long name": {Name: long, Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU},
+		"gnu long link": {Name: "a", Typeflag: tar.TypeSymlink, Linkname: long, Mode: 0o777, Format: tar.FormatGNU},
+		"pax record":    {Name: "a", Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": "x"}},
+	} {
+		record := metaPrefix(t, header)
+		for _, compress := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s gzip=%t", name, compress), func(t *testing.T) {
+				t.Parallel()
+				layer := metaChainLayer(t, record, headerOnlyEntries, compress)
+				err := analyzeWithLimits(t, layer, 3)
+				assertImageFailure(t, err, scannerworker.FailureClassFileLimitExceeded, false)
+			})
+		}
+	}
+}
+
+// TestLayerLongNamesStayWithinFileBudget proves a legitimate long-name entry
+// still passes under a small budget: its record blocks cost a few units.
+func TestLayerLongNamesStayWithinFileBudget(t *testing.T) {
+	t.Parallel()
+
+	for name, format := range map[string]tar.Format{"gnu": tar.FormatGNU, "pax": tar.FormatPAX} {
+		var body bytes.Buffer
+		writer := tar.NewWriter(&body)
+		for _, entry := range []tarEntry{
+			{name: "etc/os-release", body: alpineRelease},
+			{name: "lib/apk/db/installed", body: alpineDB},
+			{name: strings.Repeat("d/", 1500) + "file", body: "x"},
+		} {
+			if err := writer.WriteHeader(&tar.Header{Name: entry.name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(entry.body)), Format: format}); err != nil {
+				t.Fatalf("%s WriteHeader: %v", name, err)
+			}
+			if _, err := writer.Write([]byte(entry.body)); err != nil {
+				t.Fatalf("%s Write: %v", name, err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		path := filepath.Join(t.TempDir(), "long.tar")
+		if err := os.WriteFile(path, body.Bytes(), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		// 3 entries + the long-name record blocks fit 20; the name is 3003
+		// bytes, under the 4096 cap.
+		if err := analyzeWithLimits(t, path, 20); err != nil {
+			t.Fatalf("%s long-name layer error = %v, want accepted", name, err)
+		}
 	}
 }

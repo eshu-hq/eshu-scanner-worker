@@ -38,6 +38,7 @@ type layerSnapshotReader struct {
 	startCPUSeconds float64
 	files           map[string][]byte
 	oversizedRPM    map[string]bool
+	meter           metaMeter
 }
 
 func readLayerSnapshot(
@@ -154,7 +155,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	if info.Size() > r.peakBytes {
 		r.peakBytes = info.Size()
 	}
-	tarReader, closeFn, err := newLayerTarReader(file)
+	tarReader, closeFn, err := r.newLayerTarReader(file)
 	if err != nil {
 		return fmt.Errorf("%w: unsupported layer archive", errUnsupportedTarget)
 	}
@@ -176,17 +177,26 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 	}
 }
 
-func newLayerTarReader(file *os.File) (*tar.Reader, func(), error) {
+// newLayerTarReader opens the layer as gzip when it parses as gzip and as a
+// plain tar otherwise, and points the record meter at the matching stream
+// position.
+func (r *layerSnapshotReader) newLayerTarReader(file *os.File) (*tar.Reader, func(), error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, func() {}, err
 	}
 	gzipReader, err := gzip.NewReader(file)
 	if err == nil {
-		return tar.NewReader(gzipReader), func() { _ = gzipReader.Close() }, nil
+		counter := &layerCounter{src: gzipReader}
+		r.meter = newMetaMeter(func() int64 { return counter.n })
+		return tar.NewReader(counter), func() { _ = gzipReader.Close() }, nil
 	}
 	if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 		return nil, func() {}, seekErr
 	}
+	r.meter = newMetaMeter(func() int64 {
+		offset, _ := file.Seek(0, io.SeekCurrent)
+		return offset
+	})
 	return tar.NewReader(file), func() {}, nil
 }
 
