@@ -1,0 +1,35 @@
+apiVersion: eshu.dev/v1alpha1
+kind: ComponentPackage
+metadata:
+    id: eshu.scanner.osruntime
+    name: Scanner os_package_extraction component
+    publisher: eshu-hq
+    version: 0.1.0
+spec:
+    compatibleCore: '>=0.0.5 <0.2.0'
+    componentType: collector
+    collectorKinds:
+        - scanner_worker
+    runtime:
+        sdkProtocol: collector-sdk/v1alpha3
+        adapter: process
+    artifacts:
+        - platform: linux/arm64
+          image: ghcr.io/eshu-hq/scanner-osruntime@sha256:04eea122b2843569e07c695b2d6a5795c5fe1f2a6f92d43d77b3bc469949a697
+    emittedFacts:
+        - kind: vulnerability.os_package
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: vulnerability.warning
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+    consumerContracts:
+        reducer:
+            phases:
+                - source_evidence_only:no_graph_truth
+    telemetry:
+        metricsPrefix: eshu_component_scanner_osruntime

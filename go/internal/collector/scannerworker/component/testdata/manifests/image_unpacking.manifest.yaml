@@ -1,0 +1,45 @@
+apiVersion: eshu.dev/v1alpha1
+kind: ComponentPackage
+metadata:
+    id: eshu.scanner.image
+    name: Scanner image_unpacking component
+    publisher: eshu-hq
+    version: 0.1.0
+spec:
+    compatibleCore: '>=0.0.5 <0.2.0'
+    componentType: collector
+    collectorKinds:
+        - scanner_worker
+    runtime:
+        sdkProtocol: collector-sdk/v1alpha3
+        adapter: process
+    artifacts:
+        - platform: linux/arm64
+          image: ghcr.io/eshu-hq/scanner-image@sha256:450f81b8195120a59decc55fe85ab648d974371269ed1f1602e3b8dff736b6ce
+    emittedFacts:
+        - kind: scanner_worker.analysis
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: scanner_worker.warning
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: vulnerability.os_package
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: vulnerability.warning
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+    consumerContracts:
+        reducer:
+            phases:
+                - source_evidence_only:no_graph_truth
+    telemetry:
+        metricsPrefix: eshu_component_scanner_image

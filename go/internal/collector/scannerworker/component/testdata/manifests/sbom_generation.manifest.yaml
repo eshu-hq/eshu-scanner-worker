@@ -1,0 +1,40 @@
+apiVersion: eshu.dev/v1alpha1
+kind: ComponentPackage
+metadata:
+    id: eshu.scanner.sbom
+    name: Scanner sbom_generation component
+    publisher: eshu-hq
+    version: 0.1.0
+spec:
+    compatibleCore: '>=0.0.5 <0.2.0'
+    componentType: collector
+    collectorKinds:
+        - scanner_worker
+    runtime:
+        sdkProtocol: collector-sdk/v1alpha3
+        adapter: process
+    artifacts:
+        - platform: linux/arm64
+          image: ghcr.io/eshu-hq/scanner-sbom@sha256:76d36e278eac680e3508fd17e26bc4ad2324a1a64438bec083c5b534e1fe834f
+    emittedFacts:
+        - kind: sbom.document
+          schemaVersions:
+            - 1.1.0
+          sourceConfidence:
+            - reported
+        - kind: sbom.component
+          schemaVersions:
+            - 1.1.0
+          sourceConfidence:
+            - reported
+        - kind: sbom.warning
+          schemaVersions:
+            - 1.1.0
+          sourceConfidence:
+            - reported
+    consumerContracts:
+        reducer:
+            phases:
+                - source_evidence_only:no_graph_truth
+    telemetry:
+        metricsPrefix: eshu_component_scanner_sbom

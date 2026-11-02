@@ -48,6 +48,15 @@ Component lane, first slice (os_package_extraction):
   the core goldens `testdata/scanner-parity/{osruntime,image,sbom}.json`
   byte for byte, and the runner's v1alpha3 pages equal the pages built from
   each golden.
+- Commands (fourth slice): `go/cmd/scanner-component-{image,sbom,osruntime}`
+  as thin mains over `component.Main` (version probe, `seed`, one stdio
+  call); `component/manifest.go` and `seed.go` on the eshu-sdk
+  `collector/conformance.Manifest` type; `go/internal/buildinfo` verbatim.
+  `ManifestFor` carries no digest pin (a binary cannot embed its own image
+  digest); Seed stamps the digest-pinned `--image-ref`, and eshu core keeps
+  the admission pins and `VerifySeededArtifact`. `reconcile.go` and
+  `RequiredGrants` stay core-side for that reason.
+  `component/testdata/manifests` pins byte equality with core's manifests.
 - Hostile-input proof: `component/hostile_osruntime_test.go` (the #9380
   full-range run: 50,000 facts at the 4,128,768-byte bound); repository_url
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
@@ -71,9 +80,7 @@ Core-import replacements:
 
 | Piece | Blocker | Owning work |
 | --- | --- | --- |
-| `scannerworker/component/` `manifest.go`, `seed.go`, `reconcile.go` | need a local subset of core `internal/component` manifest types | eshu-hq/eshu#8878 box 10 |
-| `go/cmd/scanner-component-{image,sbom,osruntime}/` | need `buildinfo` local copy + the manifest/seed slice | eshu-hq/eshu#8878 box 10 |
-| `Dockerfile`, publish workflow, `SECURITY.md` | need the three commands | eshu-hq/eshu#8878 box 10 |
+| `Dockerfile`, publish workflow, `SECURITY.md` | next slice | eshu-hq/eshu#8878 box 10 |
 | `go/cmd/scanner-worker/` + the `scannerworker` claim loop | `internal/app`, `runtime.OpenPostgres`, postgres claim + ingest stores, `workflow`, `telemetry` | eshu-hq/eshu#8877 + eshu-hq/eshu#9376 |
 
 Production cutover, rollback rehearsal, and the satellite publish remain
