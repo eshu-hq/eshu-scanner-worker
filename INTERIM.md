@@ -125,9 +125,10 @@ Component lane, first slice (os_package_extraction):
   semantics to lower layers only; and rejects sparse entries as
   `unsupported_target` (the OCI image-spec says sparse files SHOULD NOT be
   used in a layer), so any sparse entry makes the whole image report
-  unsupported evidence with no package facts. A decompressed-byte overrun fails terminal
-  `input_limit_exceeded`, and only that failure carries `inflated_bytes`,
-  `budget_bytes`, and `compressed_bytes` on the component stderr line.
+  unsupported evidence with no package facts. A decompressed-byte overrun
+  fails terminal `input_limit_exceeded`, and only that failure carries
+  `inflated_bytes`, `budget_bytes`, and `compressed_bytes` on the component
+  stderr line.
 
 Core-import replacements:
 
