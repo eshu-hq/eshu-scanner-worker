@@ -44,10 +44,34 @@ type metaMeter struct {
 	pos      func() int64
 	last     int64
 	prevBody int64
+	// limit is the stream position past which the next header cannot arrive
+	// inside the file budget: the previous body, then one block per
+	// remaining unit plus the header block. Zero means no limit.
+	limit int64
 }
 
-func newMetaMeter(pos func() int64) metaMeter {
-	return metaMeter{pos: pos, last: pos()}
+func newMetaMeter(pos func() int64, remaining int64) metaMeter {
+	m := metaMeter{pos: pos, last: pos()}
+	m.arm(remaining)
+	return m
+}
+
+// arm sets limit for the next Next call, given the file-budget units left. A
+// chain of records longer than that cannot fit the budget, so the decompressed
+// stream stops it while it streams instead of after it has all been read.
+func (m *metaMeter) arm(remaining int64) {
+	if m.pos == nil {
+		return
+	}
+	if remaining < 0 {
+		remaining = 0
+	}
+	room := m.last + m.prevBody
+	if remaining > (math.MaxInt64-room)/tarBlockBytes-2 {
+		m.limit = math.MaxInt64
+		return
+	}
+	m.limit = room + tarBlockBytes*(remaining+2)
 }
 
 // blocks returns how many 512-byte record blocks preceded header h. A zero

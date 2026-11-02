@@ -4,6 +4,7 @@
 package imageanalyzer
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -11,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -142,5 +144,25 @@ func TestLayerEmptyGzipMemberFloodHonorsDeadline(t *testing.T) {
 	err = reader.readLayer(ctx, path)
 	if !errors.Is(err, errSourceUnavailable) {
 		t.Fatalf("readLayer() error = %v after %s, want source unavailable once the deadline passes", err, time.Since(start))
+	}
+}
+
+// TestLayerMetaRecordChainStopsWhileStreaming proves the file budget cuts a
+// gzip record chain while it streams, not after tar.Reader has consumed all of
+// it: with MaxFiles=3 the reader stops within a few blocks of the layer start.
+func TestLayerMetaRecordChainStopsWhileStreaming(t *testing.T) {
+	t.Parallel()
+
+	record := metaPrefix(t, &tar.Header{Name: strings.Repeat("n", 150), Typeflag: tar.TypeReg, Mode: 0o644, Format: tar.FormatGNU})
+	layer := metaChainLayer(t, record, headerOnlyEntries, true)
+	limits := inflateLimits(1 << 40)
+	limits.MaxFiles = 3
+	reader := newLayerSnapshotReader(limits)
+	err := reader.readLayer(context.Background(), layer)
+	if !errors.Is(err, errFileLimitExceeded) {
+		t.Fatalf("readLayer() error = %v, want file limit", err)
+	}
+	if reader.inflatedBytes > 16*tarBlockBytes {
+		t.Fatalf("inflatedBytes = %d, want the chain cut within 16 blocks, not read to its %d-byte end", reader.inflatedBytes, headerOnlyEntries*len(record))
 	}
 }

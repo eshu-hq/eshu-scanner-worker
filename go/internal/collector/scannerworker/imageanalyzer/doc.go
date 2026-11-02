@@ -15,12 +15,12 @@
 //
 // OCI layer reads are bounded three ways: every tar entry, and every 512-byte
 // block of PAX or GNU long-name records folded into one, counts against
-// MaxFiles; entry names are capped at 4096 bytes; and the decompressed bytes
+// MaxFiles (a gzip record chain is cut while it streams); entry names are capped at 4096 bytes; and the decompressed bytes
 // of gzip layers (skipped entry data included) count against a target-wide
 // budget of 8x MaxInputBytes (32 GiB on the 4 GiB image default), checked
 // together with the context on every read of the compressed and decompressed
-// streams. The compressed layer bytes and the
-// evidence file contents count against MaxInputBytes itself. An overrun fails
+// streams. The compressed layer bytes and the evidence file contents count
+// against MaxInputBytes itself. An overrun fails
 // terminal with input_limit_exceeded; the component stderr line carries
 // inflated_bytes, budget_bytes, and compressed_bytes.
 package imageanalyzer

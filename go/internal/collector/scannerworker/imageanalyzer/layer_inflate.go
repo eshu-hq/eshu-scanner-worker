@@ -96,6 +96,10 @@ func (g *inflateGuard) Read(p []byte) (int, error) {
 		return 0, g.err
 	}
 	g.budget.inflatedBytes += int64(n)
+	if limit := g.budget.meter.limit; limit > 0 && g.budget.inflatedBytes > limit {
+		g.err = fmt.Errorf("%w: layer file budget exceeded", errFileLimitExceeded)
+		return 0, g.err
+	}
 	return n, err
 }
 

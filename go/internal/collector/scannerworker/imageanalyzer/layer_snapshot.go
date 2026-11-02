@@ -192,6 +192,7 @@ func (r *layerSnapshotReader) readLayer(ctx context.Context, layerPath string) e
 			}
 			return err
 		}
+		r.meter.arm(r.maxFiles - r.filesSeen)
 	}
 }
 
@@ -205,7 +206,7 @@ func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.Fi
 	gzipReader, err := gzip.NewReader(ctxReader{ctx: ctx, src: file})
 	if err == nil {
 		guard := &inflateGuard{ctx: ctx, src: gzipReader, budget: r}
-		r.meter = newMetaMeter(func() int64 { return r.inflatedBytes })
+		r.meter = newMetaMeter(func() int64 { return r.inflatedBytes }, r.maxFiles-r.filesSeen)
 		return tar.NewReader(guard), guard, func() { _ = gzipReader.Close() }, nil
 	}
 	if errors.Is(err, errSourceUnavailable) {
@@ -215,7 +216,7 @@ func (r *layerSnapshotReader) newLayerTarReader(ctx context.Context, file *os.Fi
 		return nil, nil, func() {}, seekErr
 	}
 	tracked := &trackedFile{file: file}
-	r.meter = newMetaMeter(func() int64 { return tracked.pos })
+	r.meter = newMetaMeter(func() int64 { return tracked.pos }, r.maxFiles-r.filesSeen)
 	return tar.NewReader(tracked), nil, func() {}, nil
 }
 
