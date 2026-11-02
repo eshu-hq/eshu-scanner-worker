@@ -54,10 +54,9 @@ type Runner struct {
 
 	// snapshots overrides the rootfs snapshot provider the osruntime and
 	// image analyzers read through. Nil uses the analyzer default
-	// (osruntime.LocalRootFSProvider). Test seam only: the page-clock test
-	// injects a provider that changes between stateless calls to prove the
-	// split does not depend on the read. Snapshots carry no clock; every
-	// fact takes the claim observation time.
+	// (osruntime.LocalRootFSProvider). Test seam only: the failure tests
+	// inject a provider that returns an error. Snapshots carry no clock;
+	// every fact takes the claim observation time.
 	snapshots osruntime.SnapshotProvider
 	// inventory overrides the SBOM repository source after the operator
 	// targets decode and validate. Test seam only: the SBOM golden was

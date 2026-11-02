@@ -19,7 +19,10 @@ Byte-identical relocations (zero semantic delta):
 - `go/internal/collector/ospackagevulnerability/`: `doc.go`, `distro.go`,
   `types.go`, `apk_parser.go`, `dpkg_parser.go`, `rpm_parser.go`, parser
   tests, text fixtures. `rpm_database.go` has since gained the RPM header
-  guards (#23, #26) and is ahead of the eshu copy.
+  guards (#23, #26) and is ahead of the eshu copy. `envelope.go` and
+  `types.go` are ahead of it too (#33): `EnvelopeContext.ObservedAt` is the
+  claim observation time and a zero value is an error, not a `time.Now`
+  stamp.
 
 Component lane, first slice (os_package_extraction):
 

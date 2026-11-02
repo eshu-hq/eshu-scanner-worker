@@ -253,6 +253,38 @@ func (p fixedSnapshots) Snapshot(context.Context, osruntime.TargetConfig, scanne
 	return p.snapshot, scannerworker.ResourceUsage{CPUSeconds: 1, PeakMemoryBytes: 2}, p.err
 }
 
+// countingSnapshots returns a fixed snapshot and counts reads.
+type countingSnapshots struct {
+	snapshot osruntime.Snapshot
+	calls    int
+}
+
+func (p *countingSnapshots) Snapshot(context.Context, osruntime.TargetConfig, scannerworker.ResourceLimits) (osruntime.Snapshot, scannerworker.ResourceUsage, error) {
+	p.calls++
+	return p.snapshot, scannerworker.ResourceUsage{}, nil
+}
+
+// TestAnalyzeRejectsMissingObservedAtBeforeAnyRead proves a claim without an
+// observation time is rejected before the provider reads, on the package path
+// and on the unsupported-warning path. The warning builder performs no
+// envelope validation of its own, so the up-front guard is the only
+// protection there (no wall-clock fallback: #33).
+func TestAnalyzeRejectsMissingObservedAtBeforeAnyRead(t *testing.T) {
+	t.Parallel()
+
+	for name, snapshot := range map[string]osruntime.Snapshot{
+		"packages":    {Distro: "alpine", DistroVersion: "3.19.1", PackageManager: "apk", InstalledDB: []byte(alpineDB)},
+		"unsupported": {Distro: "alpine", DistroVersion: "3.19.1", PackageManager: "pacman"},
+	} {
+		provider := &countingSnapshots{snapshot: snapshot}
+		_, err := analyzeWithProvider(t, provider, func(in *scannerworker.ClaimInput) { in.ObservedAt = time.Time{} })
+		assertImageFailure(t, err, scannerworker.FailureClassAnalyzerFailed, false)
+		if provider.calls != 0 {
+			t.Fatalf("%s: provider read %d times for a claim with no observed_at, want 0", name, provider.calls)
+		}
+	}
+}
+
 // TestRootFSProviderOutcomes proves rootfs provider failures map onto the
 // image failure vocabulary, every fact carries the claim observation time,
 // and a claim without one is rejected (no wall-clock fallback: #33).

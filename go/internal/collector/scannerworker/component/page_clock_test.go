@@ -65,8 +65,9 @@ func TestImageRootFSMultiPageClaimSurvivesDriftingWallClock(t *testing.T) {
 }
 
 // assertDriftingClockPaging runs the component across all pages with a
-// wall clock that differs on every call, then checks the reassembled stream against the direct analysis's fact
-// identities and for one shared observation time.
+// wall clock that differs on every call, then checks the reassembled stream
+// against the direct analysis's fact identities and for one shared
+// observation time.
 func assertDriftingClockPaging(t *testing.T, componentID string, claim sdkcollector.Claim, config map[string]any, want []sdkcollector.Fact) {
 	t.Helper()
 
