@@ -65,8 +65,9 @@ Component lane, first slice (os_package_extraction):
   arm64 with SLSA provenance, cosign signature, and SBOM attestation, all
   verified in the job; `SECURITY.md` with the version-pair table. The first
   publish and the eshu re-pin have not happened.
-- Hostile-input proof: `component/hostile_osruntime_test.go` (the #9380
-  full-range run: 50,000 facts at the 4,128,768-byte bound); repository_url
+- Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
+  run for all three analyzers: 50,000 facts each at the 4,128,768-byte
+  bound, reassembled byte-identical to one direct analysis); repository_url
   sanitization, opaque-credential differential, and FIFO/symlink rootfs
   rejection tests in `ospackagevulnerability`, `osruntime`, and
   `imageanalyzer`.
