@@ -8,8 +8,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/eshu-hq/eshu-sdk/collector v0.2.0-rc.3 h1:m+sfCl0YZdWtuMY4hIiYYs5Ip/3t9o2kDlX2BaxsF9M=
 github.com/eshu-hq/eshu-sdk/collector v0.2.0-rc.3/go.mod h1:PPYMfpF8xIytKCLpAP/1T7bGJzUTc5tboKH1+j8ZK20=
-github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.12 h1:+79iPzcIHjTyLQ6dZ0Fxt8OqG/DraUiu3OeqwPjQSZE=
-github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.12/go.mod h1:GysO1GSvcUYSSl7ydDx34MYRSw4yI2DgADT0twajVXY=
+github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.13 h1:3jq0u0B5tGa/R76PkyEQ9kTxkFlWtk0vAGoO2zsbUJs=
+github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.13/go.mod h1:GysO1GSvcUYSSl7ydDx34MYRSw4yI2DgADT0twajVXY=
 github.com/glebarez/go-sqlite v1.23.0 h1:FyhIq4jqmgphQAUlY79zPldYGwISEZikaDfhiGWkkaI=
 github.com/glebarez/go-sqlite v1.23.0/go.mod h1:IIYrOH3L0rHY3jb4IXOHoWdklNajSGUN2eJcvK8WrnI=
 github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e h1:ijClszYn+mADRFY17kjQEVQ1XRhq2/JR1M3sGqeJoxs=
