@@ -118,7 +118,7 @@ same release.
 | component manifest `0.1.0` (`component.Version`) | eshu core `compatibleCore: >=0.0.5 <0.2.0`, `scannercomponent.Version` `0.1.0` | `go/internal/collector/scannerworker/component/manifest.go`, `testdata/manifests` |
 | wire protocol `collector-sdk/v1alpha3` | eshu core extension host v1alpha3 pagination | `component.protocolVersion` (from eshu-sdk) |
 | `github.com/eshu-hq/eshu-sdk/collector` `v0.2.0-rc.3` | eshu core `go/go.mod` `v0.2.0-rc.3` | `go.mod` |
-| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.12` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
+| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
 Re-pin rule: take the digests from the approved `release` run of a **push
