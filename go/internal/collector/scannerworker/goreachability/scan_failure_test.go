@@ -202,6 +202,70 @@ func TestNoPackagesIsThreeDifferentTrees(t *testing.T) {
 	}
 }
 
+// TestTypeErrorFromACgoDependencyReadsAsCgoRequired is the shape a real run printed on
+// eshu-hq/eshu: a plain "undefined" from an importer, naming no cgo at all. A real type
+// error with no cgo in the graph stays analysis_failed, and so does a graph whose
+// excluded file imports "C" in a comment-free stand-in only when go list says so.
+func TestTypeErrorFromACgoDependencyReadsAsCgoRequired(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		excluded, want string
+	}{
+		"cgo dependency":   {"package tree\n\nimport \"C\"\n", warningCgoRequired},
+		"windows only":     {"//go:build windows\n\npackage tree\n", warningAnalysisFailed},
+		"nothing excluded": {"", warningAnalysisFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			toolchain, _ := fakeScanner(t, `echo "main.go:3:8: undefined: tree_sitter.Node" >&2; exit 1`)
+			dependency := t.TempDir()
+			listing := ""
+			if tc.excluded != "" {
+				if err := os.WriteFile(filepath.Join(dependency, "node.go"), []byte(tc.excluded), 0o600); err != nil {
+					t.Fatalf("WriteFile: %v", err)
+				}
+				listing = "echo '" + dependency + "|node.go'"
+			}
+			writeFakeGo(t, toolchain, "#!/bin/sh\n"+listing+"\n")
+			outcome, err := runStage(t, toolchain, stageInput(t, "go.mod"), nil)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if len(outcome.Failed) != 1 || outcome.Failed[0].Reason != tc.want {
+				t.Fatalf("failed = %+v, want %s", outcome.Failed, tc.want)
+			}
+		})
+	}
+}
+
+// TestGraphListFailureKeepsTheFailureName proves the probe can only rename a failure:
+// a go list that fails leaves analysis_failed.
+func TestGraphListFailureKeepsTheFailureName(t *testing.T) {
+	t.Parallel()
+
+	toolchain, _ := fakeScanner(t, `echo "main.go:3:8: undefined: x" >&2; exit 1`)
+	writeFakeGo(t, toolchain, "#!/bin/sh\nexit 1\n")
+	outcome, err := runStage(t, toolchain, stageInput(t, "go.mod"), nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(outcome.Failed) != 1 || outcome.Failed[0].Reason != warningAnalysisFailed {
+		t.Fatalf("failed = %+v", outcome.Failed)
+	}
+}
+
+// writeFakeGo places a stand-in go command in the fake toolchain.
+func writeFakeGo(t *testing.T, toolchain Toolchain, script string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(toolchain.GoRoot, "bin"), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeExecutable(t, filepath.Join(toolchain.GoRoot, "bin", "go"), script)
+}
+
 // Recorded stderr for the two retryable classes.
 const (
 	stderrDownloadFailure = `main.go:3:8: golang.org/x/text@v0.3.5: Get "https://127.0.0.1:1/golang.org/x/text/@v/v0.3.5.zip": dial tcp 127.0.0.1:1: connect: connection refused`

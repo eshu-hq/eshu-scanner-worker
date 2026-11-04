@@ -5,9 +5,11 @@ package goreachability
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -50,6 +52,43 @@ func goFilesIn(root string) int {
 		return nil
 	})
 	return found
+}
+
+// graphListFormat prints, for each non-standard package in the module's graph, its
+// directory and the Go files the build excluded. The standard library is left out
+// because it always holds cgo files it can build without.
+const graphListFormat = `{{if not .Standard}}{{if .IgnoredGoFiles}}{{.Dir}}|{{join .IgnoredGoFiles ","}}{{"\n"}}{{end}}{{end}}`
+
+// graphNeedsCgo explains a scan that failed with a plain type error. With cgo off, a
+// dependency whose files all import "C" builds to nothing, and its importers report
+// undefined symbols, with no text that names cgo: a real run on eshu-hq/eshu printed
+// only "undefined: tree_sitter.Node". So this asks the go command which of the graph's
+// excluded files import "C". go list runs no compiler and no repository code. It is
+// only ever a better name for a failure, and on any error the failure keeps its name.
+func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string) bool {
+	cmd := exec.CommandContext(ctx, filepath.Join(s.config.Toolchain.GoRoot, "bin", "go"), "list", "-e", "-deps", "-f", graphListFormat, "./...") // #nosec G204 -- the seeded go with fixed arguments
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.WaitDelay = gitWaitDelay
+	configureProcessGroup(cmd, true)
+	output := &boundedBuffer{limit: scanStderrLimit * 16}
+	cmd.Stdout = output
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	for line := range strings.Lines(output.String()) {
+		packageDir, files, ok := strings.Cut(strings.TrimSpace(line), "|")
+		if !ok {
+			continue
+		}
+		for name := range strings.SplitSeq(files, ",") {
+			path := filepath.Join(packageDir, name)
+			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && importsCgo(path) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // skipForPackages applies the go command's pattern rule to one directory.

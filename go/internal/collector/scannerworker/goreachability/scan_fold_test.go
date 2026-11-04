@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -279,6 +281,55 @@ func TestRecordedRunsFoldLikeGovulnchecksOwnRules(t *testing.T) {
 var parityFixtures = []string{
 	"xtext_v0_3_5_symbol_source.jsonl",
 	"xtext_v0_3_5_package_source.jsonl",
+	"gvcexp_go1_26_10_symbol.jsonl",
+	"gvcexp_go1_26_10_package.jsonl",
+}
+
+// TestFoldMatchesGovulnchecksOwnSummary compares the fold with the text govulncheck
+// itself printed for the same run: the advisories it says are called, and its counts
+// of the ones in packages and modules the code does not call.
+func TestFoldMatchesGovulnchecksOwnSummary(t *testing.T) {
+	t.Parallel()
+
+	summary := string(readFixture(t, "gvcexp_go1_26_10_symbol.txt"))
+	folded, stdlib, err := foldFindings("symbol", parseFixture(t, "gvcexp_go1_26_10_symbol.jsonl").findings)
+	if err != nil {
+		t.Fatalf("foldFindings() error = %v", err)
+	}
+	if stdlib != 0 {
+		t.Fatalf("stdlib = %d, want none on the pinned toolchain", stdlib)
+	}
+	var called []string
+	packageDepth, moduleDepth := 0, 0
+	for _, finding := range folded {
+		switch {
+		case finding.level == levelSymbol:
+			called = append(called, finding.osv)
+		case finding.deepestPackage != "":
+			packageDepth++
+		default:
+			moduleDepth++
+		}
+	}
+	listed := regexp.MustCompile(`Vulnerability #\d+: (\S+)`).FindAllStringSubmatch(summary, -1)
+	if len(listed) != len(called) {
+		t.Fatalf("govulncheck listed %v, the fold called %v", listed, called)
+	}
+	for i, match := range listed {
+		if match[1] != called[i] {
+			t.Errorf("listed %s, fold called %s", match[1], called[i])
+		}
+	}
+	normalized := strings.Join(strings.Fields(summary), " ")
+	for _, want := range []string{
+		fmt.Sprintf("Your code is affected by %d vulnerability", len(called)),
+		fmt.Sprintf("also found %d vulnerability in packages you import", packageDepth),
+		fmt.Sprintf("and %d vulnerabilities in modules you require", moduleDepth),
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Errorf("summary lacks %q:\n%s", want, summary)
+		}
+	}
 }
 
 // paritySummary folds a recorded file without using the production types.

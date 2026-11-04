@@ -151,7 +151,8 @@ func (s *ScanStage) scanModule(ctx context.Context, input StageInput, module Mod
 	if moduleCtx.Err() != nil {
 		return moduleScan{failure: warningAnalysisTimeout}
 	}
-	stream, stderr, runErr, parseErr := s.runScanner(moduleCtx, filepath.Join(input.CheckoutDir, filepath.FromSlash(module.Dir)), env)
+	dir := filepath.Join(input.CheckoutDir, filepath.FromSlash(module.Dir))
+	stream, stderr, runErr, parseErr := s.runScanner(moduleCtx, dir, env)
 	if moduleCtx.Err() != nil {
 		return moduleScan{failure: warningAnalysisTimeout}
 	}
@@ -159,7 +160,11 @@ func (s *ScanStage) scanModule(ctx context.Context, input StageInput, module Mod
 		return s.scanWithNoPackages(input, module, stream)
 	}
 	if runErr != nil {
-		return moduleScan{failure: classifyScanFailure(stderr)}
+		failure := classifyScanFailure(stderr)
+		if failure == warningAnalysisFailed && s.graphNeedsCgo(moduleCtx, dir, env) {
+			failure = warningCgoRequired
+		}
+		return moduleScan{failure: failure}
 	}
 	if parseErr != nil || !trustworthyConfig(stream.config) {
 		return moduleScan{failure: warningAnalysisFailed}

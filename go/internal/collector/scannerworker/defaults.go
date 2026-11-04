@@ -17,10 +17,21 @@ const gibibyte int64 = 1 << 30
 // scanner-worker analyzer profile.
 func DefaultResourceLimits(analyzer AnalyzerKind) (ResourceLimits, error) {
 	switch analyzer {
-	case AnalyzerSourceAnalysis, AnalyzerGoReachability, AnalyzerSecretScan, AnalyzerLicenseScan, AnalyzerMisconfigurationScan:
+	case AnalyzerSourceAnalysis, AnalyzerSecretScan, AnalyzerLicenseScan, AnalyzerMisconfigurationScan:
 		return ResourceLimits{
 			CPUMillis:     4000,
 			MemoryBytes:   4 * gibibyte,
+			Timeout:       10 * time.Minute,
+			MaxInputBytes: 2 * gibibyte,
+			MaxFiles:      250000,
+			MaxFacts:      50000,
+		}, nil
+	case AnalyzerGoReachability:
+		// The source-analysis row with more memory: govulncheck measured 10.6 GiB
+		// peak on eshu-hq/eshu's largest module. See goreachability/README.md.
+		return ResourceLimits{
+			CPUMillis:     4000,
+			MemoryBytes:   12 * gibibyte,
 			Timeout:       10 * time.Minute,
 			MaxInputBytes: 2 * gibibyte,
 			MaxFiles:      250000,
