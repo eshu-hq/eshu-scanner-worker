@@ -16,6 +16,7 @@ import (
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/sbomgenerator"
 )
@@ -126,6 +127,26 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 	default:
 		return nil, fmt.Errorf("no component analyzer for %q", analyzer)
 	}
+}
+
+// buildGoReachability constructs the go_reachability analyzer from the
+// host-derived targets and the host-minted token. Any target defect is a bad
+// config: the target can never be served, and retry cannot fix it.
+func buildGoReachability(claim sdkcollector.Claim, config Config, options goreachability.Options) (scannerworker.Analyzer, error) {
+	var targets []goreachability.TargetConfig
+	if err := decodeTargets(config.Targets, &targets); err != nil {
+		return nil, fmt.Errorf("%w: go reachability targets did not decode", errBadTargetConfig)
+	}
+	analyzer, err := goreachability.NewAnalyzer(goreachability.Config{
+		CollectorInstanceID: claim.InstanceID,
+		Targets:             targets,
+		Token:               config.hostToken,
+		Options:             options,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errBadTargetConfig, err)
+	}
+	return analyzer, nil
 }
 
 // errBadTargetConfig marks an operator target the component can never serve,

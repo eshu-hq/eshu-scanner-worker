@@ -17,6 +17,8 @@ const (
 	// IDOSRuntime is the component identity of the OS-package-extraction
 	// binary.
 	IDOSRuntime = "eshu.scanner.osruntime"
+	// IDGoReachability is the component identity of the Go reachability binary.
+	IDGoReachability = "eshu.scanner.go-reachability"
 )
 
 // AnalyzerFor resolves a component ID back to its analyzer. Unknown IDs fail
@@ -31,6 +33,8 @@ func AnalyzerFor(id string) (scannerworker.AnalyzerKind, error) {
 		return scannerworker.AnalyzerSBOMGeneration, nil
 	case IDOSRuntime:
 		return scannerworker.AnalyzerOSPackageExtraction, nil
+	case IDGoReachability:
+		return scannerworker.AnalyzerGoReachability, nil
 	default:
 		return "", fmt.Errorf("unknown scanner component %q", id)
 	}

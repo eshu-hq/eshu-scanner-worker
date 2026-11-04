@@ -1,0 +1,45 @@
+apiVersion: eshu.dev/v1alpha1
+kind: ComponentPackage
+metadata:
+    id: eshu.scanner.go-reachability
+    name: Scanner go_reachability component
+    publisher: eshu-hq
+    version: 0.1.0
+spec:
+    compatibleCore: '>=0.0.5 <0.2.0'
+    componentType: collector
+    collectorKinds:
+        - scanner_worker
+    runtime:
+        sdkProtocol: collector-sdk/v1alpha3
+        adapter: process
+    artifacts:
+        - platform: linux/arm64
+          image: ghcr.io/eshu-hq/scanner-go-reachability@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    emittedFacts:
+        - kind: vulnerability.go_module_evidence
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: vulnerability.go_call_reachability
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: vulnerability.warning
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+        - kind: scanner_worker.warning
+          schemaVersions:
+            - 1.0.0
+          sourceConfidence:
+            - reported
+    consumerContracts:
+        reducer:
+            phases:
+                - source_evidence_only:no_graph_truth
+    telemetry:
+        metricsPrefix: eshu_component_scanner_go_reachability

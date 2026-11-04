@@ -51,6 +51,15 @@ func emittedKinds(kind scannerworker.AnalyzerKind) ([]family, error) {
 			{kind: chain.VulnerabilityOSPackageFactKind, version: chain.VulnerabilityIntelligenceSchemaVersionV1},
 			{kind: chain.VulnerabilityWarningFactKind, version: chain.VulnerabilityIntelligenceSchemaVersionV1},
 		}, nil
+	case scannerworker.AnalyzerGoReachability:
+		// go_call_reachability is declared before stage B emits it, so core
+		// pins one manifest and stage B ships with no re-pin of the kinds.
+		return []family{
+			{kind: chain.VulnerabilityGoModuleEvidenceFactKind, version: chain.VulnerabilityIntelligenceSchemaVersionV1},
+			{kind: chain.VulnerabilityGoCallReachabilityFactKind, version: chain.VulnerabilityIntelligenceSchemaVersionV1},
+			{kind: chain.VulnerabilityWarningFactKind, version: chain.VulnerabilityIntelligenceSchemaVersionV1},
+			{kind: facts.ScannerWorkerWarningFactKind, version: facts.ScannerWorkerSchemaVersionV1},
+		}, nil
 	default:
 		return nil, fmt.Errorf("no component manifest for analyzer %q", kind)
 	}
@@ -65,6 +74,8 @@ func componentID(kind scannerworker.AnalyzerKind) (string, error) {
 		return IDSBOM, nil
 	case scannerworker.AnalyzerOSPackageExtraction:
 		return IDOSRuntime, nil
+	case scannerworker.AnalyzerGoReachability:
+		return IDGoReachability, nil
 	default:
 		return "", fmt.Errorf("no component identity for analyzer %q", kind)
 	}
@@ -129,7 +140,8 @@ func ManifestFor(kind scannerworker.AnalyzerKind) (conformance.Manifest, error) 
 			ConsumerContracts: conformance.ConsumerContracts{
 				Reducer: conformance.ReducerContract{Phases: []string{"source_evidence_only:no_graph_truth"}},
 			},
-			Telemetry: conformance.Telemetry{MetricsPrefix: "eshu_component_scanner_" + name},
+			// A Prometheus name cannot hold the component id's hyphen.
+			Telemetry: conformance.Telemetry{MetricsPrefix: "eshu_component_scanner_" + strings.ReplaceAll(name, "-", "_")},
 		},
 	}, nil
 }
