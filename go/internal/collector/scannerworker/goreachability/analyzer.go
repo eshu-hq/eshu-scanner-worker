@@ -42,8 +42,8 @@ type Options struct {
 type Config struct {
 	// CollectorInstanceID is the claimed activation instance.
 	CollectorInstanceID string
-	// Targets are the host-derived repository targets.
-	Targets []TargetConfig
+	// Target is the host-derived repository target for this claim.
+	Target TargetConfig
 	// Token is the host-minted credential for this claim.
 	Token HostToken
 	// Options holds the defaults above.
@@ -53,7 +53,7 @@ type Config struct {
 // Analyzer is the go_reachability scanner analyzer.
 type Analyzer struct {
 	instanceID string
-	targets    map[string]TargetConfig
+	target     TargetConfig
 	token      HostToken
 	git        gitRunner
 	toolchain  string
@@ -62,34 +62,24 @@ type Analyzer struct {
 	stage      Stage
 }
 
-// NewAnalyzer validates the targets and builds the analyzer. A credential defect
+// NewAnalyzer validates the target and builds the analyzer. A credential defect
 // is reported by Analyze as auth_denied rather than here, because it is a claim
-// outcome and not a bad activation.
+// outcome and not a bad target.
 func NewAnalyzer(config Config) (*Analyzer, error) {
 	if strings.TrimSpace(config.CollectorInstanceID) == "" {
 		return nil, errors.New("collector instance id is required")
-	}
-	if len(config.Targets) == 0 {
-		return nil, errors.New("at least one go reachability target is required")
 	}
 	schemes := config.Options.AllowedSchemes
 	if len(schemes) == 0 {
 		schemes = []string{"https"}
 	}
-	targets := make(map[string]TargetConfig, len(config.Targets))
-	for i, target := range config.Targets {
-		validated, err := target.validate(schemes)
-		if err != nil {
-			return nil, fmt.Errorf("go reachability target %d: %w", i, err)
-		}
-		if _, duplicate := targets[validated.ScopeID]; duplicate {
-			return nil, fmt.Errorf("go reachability target %d: duplicate scope_id", i)
-		}
-		targets[validated.ScopeID] = validated
+	target, err := config.Target.validate(schemes)
+	if err != nil {
+		return nil, fmt.Errorf("go reachability target: %w", err)
 	}
 	analyzer := &Analyzer{
 		instanceID: config.CollectorInstanceID,
-		targets:    targets,
+		target:     target,
 		token:      config.Token,
 		git:        gitRunner{path: config.Options.GitPath, schemes: schemes},
 		toolchain:  config.Options.Toolchain,
@@ -112,13 +102,9 @@ func NewAnalyzer(config Config) (*Analyzer, error) {
 // Analyze runs one claim: refuse a bad credential, fetch the claimed commit, read
 // its go.mod files, run the stage, and report what the evidence can attest.
 func (a *Analyzer) Analyze(ctx context.Context, input scannerworker.ClaimInput) (scannerworker.AnalyzerResult, error) {
-	target, ok := a.targets[input.Target.ScopeID]
-	if !ok {
+	target := a.target
+	if input.Target.ScopeID != target.ScopeID {
 		return scannerworker.AnalyzerResult{}, scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassUnsupportedTarget, scannerworker.ResourceUsage{}, nil)
-	}
-	repositoryID, err := RepositoryIDFromScope(target.ScopeID)
-	if err != nil {
-		return scannerworker.AnalyzerResult{}, scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassUnsupportedTarget, scannerworker.ResourceUsage{}, err)
 	}
 	if !a.token.usableFor(input.Target.ScopeID) {
 		return scannerworker.AnalyzerResult{}, scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassAuthDenied, scannerworker.ResourceUsage{}, nil)
@@ -142,7 +128,7 @@ func (a *Analyzer) Analyze(ctx context.Context, input scannerworker.ClaimInput) 
 	emit := emitContext{
 		input:        input,
 		instanceID:   a.instanceID,
-		repositoryID: repositoryID,
+		repositoryID: target.RepositoryID,
 		commitSHA:    target.SourceCommitSHA,
 		sourceURI:    sanitizeSourceURI(target.CloneURL),
 	}

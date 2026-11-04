@@ -120,7 +120,7 @@ func fixtureAnalyzer(t *testing.T, cloneURL, sha string, mutate func(*Config)) *
 
 	config := Config{
 		CollectorInstanceID: "instance-1",
-		Targets:             []TargetConfig{{ScopeID: testScopeID, CloneURL: cloneURL, SourceCommitSHA: sha}},
+		Target:              TargetConfig{ScopeID: testScopeID, RepositoryID: testRepositoryID, CloneURL: cloneURL, SourceCommitSHA: sha},
 		Token:               ParseHostToken(map[string]any{"token": testToken, "scope_id": testScopeID}),
 		Options: Options{
 			AllowedSchemes: []string{"file"},

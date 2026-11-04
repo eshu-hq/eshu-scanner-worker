@@ -40,8 +40,11 @@ func serve(t *testing.T, bin string, token map[string]any, cloneURL string) (map
 	t.Helper()
 
 	config := map[string]any{
-		"targets":            []any{map[string]any{"scope_id": smokeScope, "clone_url": cloneURL, "source_commit_sha": strings.Repeat("a", 40)}},
-		"acceptance_unit_id": "repository:r_1a2b3c4d",
+		"derive_from_go_modules": map[string]any{"enabled": true},
+		"host_derived_target": map[string]any{
+			"scope_id": smokeScope, "repository_id": "repository:r_1a2b3c4d",
+			"source_commit_sha": strings.Repeat("a", 40), "clone_url": cloneURL,
+		},
 	}
 	if token != nil {
 		config["host_github_app_token"] = token

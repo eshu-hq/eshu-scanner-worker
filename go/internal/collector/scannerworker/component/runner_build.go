@@ -130,16 +130,16 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 }
 
 // buildGoReachability constructs the go_reachability analyzer from the
-// host-derived targets and the host-minted token. Any target defect is a bad
-// config: the target can never be served, and retry cannot fix it.
+// host-derived target and the host-minted token. Any target defect is a bad
+// config: the target can never be served, and retry cannot fix it. A target for
+// another scope is the same defect, so it fails here with no facts.
 func buildGoReachability(claim sdkcollector.Claim, config Config, options goreachability.Options) (scannerworker.Analyzer, error) {
-	var targets []goreachability.TargetConfig
-	if err := decodeTargets(config.Targets, &targets); err != nil {
-		return nil, fmt.Errorf("%w: go reachability targets did not decode", errBadTargetConfig)
+	if config.derivedTarget.ScopeID != claim.Scope.ID {
+		return nil, fmt.Errorf("%w: host_derived_target is for another scope", errBadTargetConfig)
 	}
 	analyzer, err := goreachability.NewAnalyzer(goreachability.Config{
 		CollectorInstanceID: claim.InstanceID,
-		Targets:             targets,
+		Target:              config.derivedTarget,
 		Token:               config.hostToken,
 		Options:             options,
 	})

@@ -17,29 +17,58 @@ import (
 const scopePrefix = "go-reachability://"
 
 var (
-	scopePattern  = regexp.MustCompile(`^go-reachability://(repository:r_[0-9a-f]{8})$`)
-	commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	scopePattern = regexp.MustCompile(`^go-reachability://(repository:r_[0-9a-f]{8})$`)
+	// A full object name: SHA-1 or SHA-256. This matches core's planner.
+	commitPattern = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 )
 
-// TargetConfig is one host-derived repository target. It holds identity and
-// location only. Credentials never appear here: the clone URL must be free of
-// userinfo and the token arrives separately as HostToken.
+// TargetConfig is the target the host derived for one claim, delivered under the
+// host_derived_target request key. It holds identity and location only, and it
+// is the only source of the repository id and commit: nothing is read from the
+// checkout. The clone URL must be free of userinfo; the token arrives separately
+// as HostToken.
 type TargetConfig struct {
 	// ScopeID is the derived claim scope this target serves.
-	ScopeID string `json:"scope_id"`
+	ScopeID string
+	// RepositoryID is the canonical repository id. It must match ScopeID.
+	RepositoryID string
 	// CloneURL is the credential-free remote to fetch from.
-	CloneURL string `json:"clone_url"`
+	CloneURL string
 	// SourceCommitSHA is the full commit id Eshu observed for this scope.
-	SourceCommitSHA string `json:"source_commit_sha"`
+	SourceCommitSHA string
 
 	// origin is scheme://host of CloneURL, set by validate. The credential header
 	// is scoped to it.
 	origin string
 }
 
+// ParseDerivedTarget reads the raw host_derived_target config value. A missing or
+// malformed value is an error: retrying cannot repair it, so the caller fails the
+// claim terminal with no facts. The host may add fields, so unknown keys are
+// ignored. An error names the key, never the value.
+func ParseDerivedTarget(raw any) (TargetConfig, error) {
+	stanza, ok := raw.(map[string]any)
+	if !ok {
+		return TargetConfig{}, errors.New("host_derived_target is not an object")
+	}
+	var target TargetConfig
+	for key, field := range map[string]*string{
+		"scope_id":          &target.ScopeID,
+		"repository_id":     &target.RepositoryID,
+		"source_commit_sha": &target.SourceCommitSHA,
+		"clone_url":         &target.CloneURL,
+	} {
+		value, ok := stanza[key].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return TargetConfig{}, fmt.Errorf("host_derived_target.%s is required", key)
+		}
+		*field = value
+	}
+	return target, nil
+}
+
 // RepositoryIDFromScope returns the canonical repository id a derived claim
-// scope names. Any other scope fails, so a claim cannot select identity from
-// anywhere else. The error never echoes the scope.
+// scope names. Any other scope fails, and the error never echoes the scope.
 func RepositoryIDFromScope(scopeID string) (string, error) {
 	match := scopePattern.FindStringSubmatch(scopeID)
 	if match == nil {
@@ -52,11 +81,15 @@ func RepositoryIDFromScope(scopeID string) (string, error) {
 // its origin set. Errors name the defect, never the value: a rejected URL may
 // hold a credential.
 func (t TargetConfig) validate(schemes []string) (TargetConfig, error) {
-	if _, err := RepositoryIDFromScope(t.ScopeID); err != nil {
+	repositoryID, err := RepositoryIDFromScope(t.ScopeID)
+	if err != nil {
 		return TargetConfig{}, err
 	}
+	if t.RepositoryID != repositoryID {
+		return TargetConfig{}, errors.New("repository_id does not match the target scope")
+	}
 	if !commitPattern.MatchString(t.SourceCommitSHA) {
-		return TargetConfig{}, errors.New("source_commit_sha is not a full lowercase commit id")
+		return TargetConfig{}, errors.New("source_commit_sha is not a full lowercase object name")
 	}
 	origin, err := cloneURLOrigin(t.CloneURL, schemes)
 	if err != nil {

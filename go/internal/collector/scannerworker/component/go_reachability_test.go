@@ -100,8 +100,11 @@ func goModFile(body string) map[string]string { return map[string]string{"go.mod
 
 func goReachabilityConfig(cloneURL, sha string, token map[string]any) map[string]any {
 	config := map[string]any{
-		"targets":            []any{map[string]any{"scope_id": goReachabilityScope, "clone_url": cloneURL, "source_commit_sha": sha}},
-		"acceptance_unit_id": goReachabilityRepository,
+		"derive_from_go_modules": map[string]any{"enabled": true, "scan_interval": "6h"},
+		"host_derived_target": map[string]any{
+			"scope_id": goReachabilityScope, "repository_id": goReachabilityRepository,
+			"source_commit_sha": sha, "clone_url": cloneURL,
+		},
 	}
 	if token != nil {
 		config["host_github_app_token"] = token
@@ -357,17 +360,6 @@ func TestProductionRunnerRefusesNonHTTPSTransports(t *testing.T) {
 
 	claim := testClaim(IDGoReachability, goReachabilityScope, "gen-go-1")
 	config := goReachabilityConfig("file:///unused", strings.Repeat("a", 40), goReachabilityTokenStanza())
-	runTerminal(t, IDGoReachability, testRequest(t, claim, config), "component_bad_config")
-}
-
-// TestGoReachabilityBadScopeIsBadConfig refuses a claim whose scope is not the
-// derived repository shape.
-func TestGoReachabilityBadScopeIsBadConfig(t *testing.T) {
-	t.Parallel()
-
-	claim := testClaim(IDGoReachability, "scanner-worker://repository/x", "gen-go-1")
-	config := goReachabilityConfig("https://github.com/o/r.git", strings.Repeat("a", 40), goReachabilityTokenStanza())
-	config["targets"] = []any{map[string]any{"scope_id": "scanner-worker://repository/x", "clone_url": "https://github.com/o/r.git", "source_commit_sha": strings.Repeat("a", 40)}}
 	runTerminal(t, IDGoReachability, testRequest(t, claim, config), "component_bad_config")
 }
 

@@ -36,6 +36,9 @@ const (
 	// gitBasicUser is the fixed user GitHub documents for an installation token
 	// used over HTTP basic authentication.
 	gitBasicUser = "x-access-token"
+	// sha256ObjectNameLength names a commit in a sha-256 repository, which git
+	// must initialize in that object format to fetch from.
+	sha256ObjectNameLength = 64
 )
 
 // inheritedEnv names the only variables git inherits: where binaries live and
@@ -56,12 +59,16 @@ type gitRunner struct {
 // checkout fetches exactly one commit into dir and verifies HEAD equals it. The
 // token reaches only the fetch process, through its environment.
 func (g gitRunner) checkout(ctx context.Context, dir string, target TargetConfig, token HostToken) error {
+	initArgs := []string{"init", "--quiet", "--template="}
+	if len(target.SourceCommitSHA) == sha256ObjectNameLength {
+		initArgs = append(initArgs, "--object-format=sha256")
+	}
 	steps := []struct {
 		reason string
 		auth   bool
 		args   []string
 	}{
-		{reason: reasonFetchFailed, args: []string{"init", "--quiet", "--template=", dir}},
+		{reason: reasonFetchFailed, args: append(initArgs, dir)},
 		{reason: reasonFetchFailed, args: []string{"-C", dir, "remote", "add", "origin", target.CloneURL}},
 		{reason: reasonFetchFailed, auth: true, args: []string{"-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", "origin", target.SourceCommitSHA}},
 		{reason: reasonCheckoutFailed, args: []string{"-C", dir, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", "FETCH_HEAD"}},

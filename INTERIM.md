@@ -88,10 +88,12 @@ Component lane, first slice (os_package_extraction):
   `vulnerability.go_module_evidence`; `go/cmd/scanner-component-go-reachability`
   and the `scanner-go-reachability` image follow the other components. Every
   module-bearing result stays partial and untrusted until stage B (#48) wires the
-  `Stage` seam. Core admission is owed by eshu#10002 child C2, which must plan
-  `go-reachability://repository:r_<8 hex>` scopes, derive targets with
-  `clone_url` and `source_commit_sha`, select a token installation for derived
-  scopes, and reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
+  `Stage` seam. It takes the repository id, commit, and clone URL from the host's
+  `host_derived_target` request key and the token from `host_github_app_token`,
+  and refuses static targets. Core admission is owed by eshu#10002 child C2, which
+  must plan `go-reachability://repository:r_<8 hex>` scopes, deliver that key,
+  select a token installation for derived scopes, pin the image digest, and
+  reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
   binary runs in the Eshu worker container after the seed copy, so it uses that
   image's git; the seed contract delivers no Go toolchain or govulncheck there,
   which stage B must settle.

@@ -40,6 +40,14 @@ type StageInput struct {
 	Modules []Module
 }
 
+// Envelope stamps one stage B fact with this claim's identity, so stage B builds
+// no identity of its own. The reducer drops a go_call_reachability row with no
+// deepest_module: a not_called fact must carry deepest_module, osv_id, and
+// repository_id in its payload, with an empty trace.
+func (s StageInput) Envelope(kind, stableKey, recordID string, payload map[string]any) facts.Envelope {
+	return emitContext{input: s.Claim, sourceURI: s.SourceURI}.envelope(kind, stableKey, recordID, payload)
+}
+
 // ModuleFailure is one module stage B could not analyze. Its evidence stays,
 // the analyzer adds a warning fact, and the result is partial.
 type ModuleFailure struct {

@@ -5,35 +5,41 @@ package component
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
 
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 )
 
 // maxRequestBytes bounds one stdin request document. A request carries the
-// claim, the contract, and operator activation config (targets and budgets,
-// and for go_reachability the one host-minted token); a megabyte is orders of
+// claim, the contract, and activation config (targets and budgets, and for
+// go_reachability the host's target and token); a megabyte is orders of
 // magnitude above any legitimate scanner request.
 const maxRequestBytes = int64(1024 * 1024)
 
-// hostTokenKey is the request config key under which the host delivers a
-// per-claim GitHub installation token as {token, scope_id}. It mirrors eshu
-// core's extensionhost.HostMintedGitHubTokenKey.
-const hostTokenKey = "host_github_app_token" // #nosec G101 -- names a config key, not a credential value
+// Host-owned request config keys go_reachability reads. They mirror eshu core's
+// extensionhost.HostMintedGitHubTokenKey and HostDerivedTargetKey. Every other
+// component refuses them through its strict decode.
+const (
+	hostTokenKey         = "host_github_app_token" // #nosec G101 -- names a config key, not a credential value
+	hostDerivedTargetKey = "host_derived_target"
+	// goModulesDeriveKey is the coordinator's activation section. The component
+	// ignores its contents: it plans nothing.
+	goModulesDeriveKey = "derive_from_go_modules"
+)
 
-// Config is the operator activation config a scanner component accepts
-// inside the host request. It carries target material and budgets only:
-// repository roots, rootfs paths, image references, and digests stay out of
-// labels, logs, metrics, and errors. The only credential is the host-minted
-// token go_reachability receives; every other component refuses it.
+// Config is the activation config a scanner component accepts inside the host
+// request. It carries target material and budgets only: repository roots, rootfs
+// paths, image references, and digests stay out of labels, logs, metrics, and
+// errors. The only credential is the host-minted token go_reachability receives.
 type Config struct {
-	// hostToken is the host-minted credential, extracted before the strict
-	// decode because the host may add fields to its stanza. It never formats.
+	// hostToken is the host-minted credential. It never formats.
 	hostToken goreachability.HostToken
-	// hostTokenPresent reports whether the request carried the token key at all.
-	hostTokenPresent bool
+	// derivedTarget is the host's target for a go_reachability claim.
+	derivedTarget goreachability.TargetConfig
 
 	// Targets carries the analyzer-native target documents. Each entry
 	// decodes into the analyzer's own TargetConfig shape (imageanalyzer,
@@ -51,29 +57,67 @@ type Config struct {
 	PageBoundBytes int64 `json:"page_bound_bytes,omitempty"`
 }
 
+// parseConfigFor decodes the config block for one analyzer.
+func parseConfigFor(analyzer scannerworker.AnalyzerKind, raw map[string]any) (Config, error) {
+	if analyzer == scannerworker.AnalyzerGoReachability {
+		return parseGoReachabilityConfig(raw)
+	}
+	return parseConfig(raw)
+}
+
 // parseConfig decodes and validates the component config block.
 func parseConfig(raw map[string]any) (Config, error) {
-	stripped := maps.Clone(raw)
-	delete(stripped, hostTokenKey)
-	payload, err := json.Marshal(stripped)
+	config, err := decodeConfig(raw)
 	if err != nil {
-		return Config{}, fmt.Errorf("encode component config: %w", err)
-	}
-	var config Config
-	if stanza, ok := raw[hostTokenKey]; ok {
-		config.hostToken = goreachability.ParseHostToken(stanza)
-		config.hostTokenPresent = true
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(payload)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil {
-		return Config{}, fmt.Errorf("decode component config: %w", err)
+		return Config{}, err
 	}
 	if len(config.Targets) == 0 {
 		return Config{}, fmt.Errorf("at least one component target is required")
 	}
 	if strings.TrimSpace(config.AcceptanceUnitID) == "" {
 		return Config{}, fmt.Errorf("acceptance_unit_id must not be blank")
+	}
+	return config, nil
+}
+
+// parseGoReachabilityConfig reads the host's target and token. The two host keys
+// and the derive section leave the strict decode because the host owns their
+// shape. Static targets and an acceptance unit are refused, so activation config
+// cannot forge a commit or a remote. The acceptance unit is the scope, as the
+// core planner sets it. A target or token defect never echoes its value.
+func parseGoReachabilityConfig(raw map[string]any) (Config, error) {
+	stripped := maps.Clone(raw)
+	delete(stripped, hostTokenKey)
+	delete(stripped, hostDerivedTargetKey)
+	delete(stripped, goModulesDeriveKey)
+	config, err := decodeConfig(stripped)
+	if err != nil {
+		return Config{}, err
+	}
+	if len(config.Targets) > 0 || config.AcceptanceUnitID != "" {
+		return Config{}, errors.New("go reachability takes its target from the host, not from activation config")
+	}
+	target, err := goreachability.ParseDerivedTarget(raw[hostDerivedTargetKey])
+	if err != nil {
+		return Config{}, err
+	}
+	config.derivedTarget = target
+	config.AcceptanceUnitID = target.ScopeID
+	config.hostToken = goreachability.ParseHostToken(raw[hostTokenKey])
+	return config, nil
+}
+
+// decodeConfig runs the strict decode every component shares.
+func decodeConfig(raw map[string]any) (Config, error) {
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return Config{}, fmt.Errorf("encode component config: %w", err)
+	}
+	var config Config
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
+		return Config{}, fmt.Errorf("decode component config: %w", err)
 	}
 	if config.PageBoundBytes < 0 {
 		return Config{}, fmt.Errorf("page_bound_bytes must not be negative")

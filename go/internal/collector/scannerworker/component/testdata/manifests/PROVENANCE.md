@@ -23,6 +23,5 @@ vocabulary and pins arrive with eshu-hq/eshu#10002 child C2. This file is what
 the satellite emits, with an all-zero placeholder digest, so it pins the
 satellite bytes only. C2 must produce these bytes, including the kinds declared
 ahead of stage B and the metrics prefix `eshu_component_scanner_go_reachability`,
-whose underscore replaces the component id's hyphen. Core's `ManifestFor` builds
-the prefix from the id as it stands, so C2 needs the same replacement. Recapture
+whose underscore replaces the component id's hyphen. Recapture
 this file from core when C2 lands and add its row to the table above.

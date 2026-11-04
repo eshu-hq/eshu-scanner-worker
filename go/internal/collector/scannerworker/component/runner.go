@@ -145,12 +145,8 @@ func (r Runner) Run(ctx context.Context) error {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_claim_mismatch")
 		return r.emitTerminal(req.Claim, observedAt, "component_claim_mismatch")
 	}
-	config, err := parseConfig(req.Config)
+	config, err := parseConfigFor(analyzer, req.Config)
 	if err != nil {
-		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_config")
-		return r.emitTerminal(req.Claim, observedAt, "component_bad_config")
-	}
-	if config.hostTokenPresent && analyzer != scannerworker.AnalyzerGoReachability {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_config")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_config")
 	}

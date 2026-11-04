@@ -12,7 +12,7 @@ import (
 )
 
 func validTarget() TargetConfig {
-	return TargetConfig{ScopeID: testScopeID, CloneURL: "https://github.com/org/repo.git", SourceCommitSHA: strings.Repeat("a", 40)}
+	return TargetConfig{ScopeID: testScopeID, RepositoryID: testRepositoryID, CloneURL: "https://github.com/org/repo.git", SourceCommitSHA: strings.Repeat("a", 40)}
 }
 
 // TestRepositoryIDFromScopeIsStrict accepts only the canonical derived shape.
@@ -43,7 +43,7 @@ func TestNewAnalyzerRejectsUnsafeTargets(t *testing.T) {
 
 	token := ParseHostToken(map[string]any{"token": testToken, "scope_id": testScopeID})
 	build := func(target TargetConfig) error {
-		_, err := NewAnalyzer(Config{CollectorInstanceID: "i", Targets: []TargetConfig{target}, Token: token})
+		_, err := NewAnalyzer(Config{CollectorInstanceID: "i", Target: target, Token: token})
 		return err
 	}
 	if err := build(validTarget()); err != nil {
@@ -64,7 +64,7 @@ func TestNewAnalyzerRejectsUnsafeTargets(t *testing.T) {
 			t.Errorf("clone url %q: error echoes the value: %v", url, err)
 		}
 	}
-	for _, sha := range []string{"", "abc", strings.Repeat("A", 40), strings.Repeat("g", 40), strings.Repeat("a", 41), "--upload-pack=x", "HEAD", "main"} {
+	for _, sha := range []string{"", "abc", strings.Repeat("A", 40), strings.Repeat("g", 40), strings.Repeat("a", 41), strings.Repeat("a", 63), strings.Repeat("a", 65), "--upload-pack=x", "HEAD", "main"} {
 		target := validTarget()
 		target.SourceCommitSHA = sha
 		if err := build(target); err == nil {
@@ -78,26 +78,31 @@ func TestNewAnalyzerRejectsUnsafeTargets(t *testing.T) {
 			t.Errorf("scope %q: error = nil, want rejection", scope)
 		}
 	}
-	if _, err := NewAnalyzer(Config{CollectorInstanceID: "i", Token: token}); err == nil {
-		t.Error("no targets: error = nil, want rejection")
+	for _, repository := range []string{"", "repository:r_ffffffff", testScopeID} {
+		target := validTarget()
+		target.RepositoryID = repository
+		if err := build(target); err == nil {
+			t.Errorf("repository %q: error = nil, want rejection", repository)
+		}
 	}
-	if _, err := NewAnalyzer(Config{CollectorInstanceID: "i", Targets: []TargetConfig{validTarget(), validTarget()}, Token: token}); err == nil {
-		t.Error("duplicate targets: error = nil, want rejection")
+	if err := build(TargetConfig{}); err == nil {
+		t.Error("empty target: error = nil, want rejection")
 	}
-	if _, err := NewAnalyzer(Config{Targets: []TargetConfig{validTarget()}, Token: token}); err == nil {
+	if _, err := NewAnalyzer(Config{Target: validTarget(), Token: token}); err == nil {
 		t.Error("blank instance: error = nil, want rejection")
 	}
 }
 
-// TestAnalyzeRefusesAClaimOutsideItsTargets proves the claim scope selects the
-// target: a claim for another repository is never served.
-func TestAnalyzeRefusesAClaimOutsideItsTargets(t *testing.T) {
+// TestAnalyzeRefusesAClaimOutsideItsTarget proves a claim for another repository
+// is never served.
+func TestAnalyzeRefusesAClaimOutsideItsTarget(t *testing.T) {
 	t.Parallel()
 
 	other := validTarget()
 	other.ScopeID = "go-reachability://repository:r_ffffffff"
+	other.RepositoryID = "repository:r_ffffffff"
 	analyzer := fixtureAnalyzer(t, "https://github.com/o/r.git", strings.Repeat("a", 40), func(c *Config) {
-		c.Targets = []TargetConfig{other}
+		c.Target = other
 		c.Options.AllowedSchemes = nil
 	})
 	_, err := analyzer.Analyze(context.Background(), testInput(t))

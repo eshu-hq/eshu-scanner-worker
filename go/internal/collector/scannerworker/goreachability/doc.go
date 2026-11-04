@@ -12,9 +12,9 @@
 // per require with its replace applied. Stage B (eshu-hq/eshu-scanner-worker#48)
 // runs govulncheck behind the Stage seam in stage.go.
 //
-// Identity comes from the claim. The repository id is parsed from the claim
-// scope (go-reachability://repository:r_<8 hex>) and the commit from the
-// host-derived target; neither is read from the checkout.
+// Identity comes from the host. The repository id and commit are read from the
+// host_derived_target request key, whose scope must equal the claim scope
+// (go-reachability://repository:r_<8 hex>); neither is read from the checkout.
 //
 // The credential is the host-minted GitHub installation token. It reaches git
 // only as a URL-scoped http.extraHeader in the fetch process environment, so it

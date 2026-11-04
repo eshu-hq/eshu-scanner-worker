@@ -218,7 +218,7 @@ func TestAStageWithNoEligibleModuleIsNotCalled(t *testing.T) {
 func TestProductionDefaultsNeedNoOptions(t *testing.T) {
 	t.Parallel()
 
-	analyzer, err := NewAnalyzer(Config{CollectorInstanceID: "i", Targets: []TargetConfig{validTarget()}})
+	analyzer, err := NewAnalyzer(Config{CollectorInstanceID: "i", Target: validTarget()})
 	if err != nil {
 		t.Fatalf("NewAnalyzer() error = %v", err)
 	}
@@ -228,7 +228,7 @@ func TestProductionDefaultsNeedNoOptions(t *testing.T) {
 	if !strings.HasPrefix(analyzer.toolchain, "go1.") || strings.Contains(analyzer.toolchain, " ") || analyzer.version == "" {
 		t.Fatalf("toolchain = %q version = %q", analyzer.toolchain, analyzer.version)
 	}
-	if got := analyzer.targets[testScopeID].origin; got != "https://github.com" {
+	if got := analyzer.target.origin; got != "https://github.com" {
 		t.Fatalf("origin = %q", got)
 	}
 }

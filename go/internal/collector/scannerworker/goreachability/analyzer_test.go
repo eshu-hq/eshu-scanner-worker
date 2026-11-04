@@ -208,6 +208,7 @@ func TestToolchainDirectiveAboveThePinIsTerminalForTheGeneration(t *testing.T) {
 		"go directive":        "go 1.99\n",
 		"toolchain directive": "go 1.24\n\ntoolchain go1.99.1\n",
 		"next patch":          "go 1.26.11\n",
+		"trailing comment":    "go 1.99 // newer than the pin\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
