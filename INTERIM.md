@@ -87,12 +87,8 @@ Component lane, first slice (os_package_extraction):
   the claimed commit, reads each `go.mod`, and emits
   `vulnerability.go_module_evidence`; `go/cmd/scanner-component-go-reachability`
   and the `scanner-go-reachability` image follow the other components. Every
-  module-bearing result stays partial until stage B (#48) wires the `Stage` seam, so
-  `eshu_dp_component_extension_results_total{state="partial"}` is 100 percent for
-  module-bearing claims until then. Every committed generation is the full snapshot of
-  one commit and attests deletion: a module it could not read is named by a
-  `scanner_worker.warning` in that generation, and its earlier evidence leaves truth. It
-  takes the repository id, commit, and clone URL from the host's
+  module-bearing result stays partial until stage B (#48) wires the
+  `Stage` seam. It takes the repository id, commit, and clone URL from the host's
   `host_derived_target` request key and the token from `host_github_app_token`,
   and refuses static targets. The token reaches only `github.com` unless the
   activation sets `allowed_clone_hosts`. Stage A writes no worktree: it reads each
@@ -108,10 +104,12 @@ Component lane, first slice (os_package_extraction):
   govulncheck per module and emits `vulnerability.go_call_reachability`. The image
   carries a trimmed GOROOT and a govulncheck pinned by go.sum, and `Seed` copies both
   to `<dest>/toolchain`. Failures are `scanner_worker.warning` with `reason`,
-  `repository_id`, and `relative_path`; those two keys are written untyped until the
-  SDK release that types them. Provenance keys on the reachability fact wait the same
-  way. A clean symbol scan of every module is complete and trusted; anything else
-  stays partial and untrusted. See `goreachability/README.md` for the measured budgets.
+  `repository_id`, and `relative_path`; those two keys are written untyped until this
+  module pins factschema `v0.1.0-rc.17`, which types them. Provenance keys on the reachability fact wait the same
+  way. Every committed generation is a full snapshot of one commit and attests
+  deletion; a unit it could not observe is named by a warning in that generation. A
+  retryable class fails the whole claim once with no generation. See
+  `goreachability/README.md` for the rule and the measured budgets.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url
