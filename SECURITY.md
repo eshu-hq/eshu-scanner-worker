@@ -35,8 +35,35 @@ GitHub installation token for one claim. It never reads a GitHub App key. The
 token reaches git only through the fetch process environment, as an
 `http.extraHeader` scoped to the clone URL's origin, so a token on a command
 line, in the checkout, in a log, or in a fact is a vulnerability. git runs with a
-clean environment, no system or global config, no hooks, redirects off, and the
-`https` transport alone. Repository content is parsed, never executed.
+clean environment, no system or global config, no hooks, redirects off, maintenance
+off, and the `https` transport alone. Repository content is parsed, never executed.
+
+The token goes only to a canonical remote on an allowed host. The default is
+`github.com`. An operator can replace that list with the activation's
+`allowed_clone_hosts`; a host-derived target cannot. IP literals, ports, userinfo,
+and non-canonical paths are always refused, before any git process starts.
+
+Budgets hold before the damage. A fetch whose `.git` passes the byte budget is
+cancelled, and a stalled transfer stops after 60 seconds under 1,000 bytes per
+second. Every tree entry and blob counts against the file and byte budgets, excluded
+directories included, before any worktree byte exists. Stage A reads `go.mod` files
+from the object store and writes no worktree. Each claim reads at most 4,096 `go.mod`
+files, 4 MiB each and 64 MiB in all, and the fact budget stops the read at the first
+file that overruns it.
+
+The fetch runs under a guard that kills its process group when the component dies,
+including by SIGKILL, so `git-remote-https` cannot outlive the claim holding the token.
+Every other git call dies with the component through a parent-death signal. A later
+claim removes a killed run's workspace, and a kernel-held lock protects a live
+sibling's. What remains: between a kill and the guard's reaction, the helper still holds the
+token in `/proc/<pid>/environ`, readable only by the same user in the same pod. If the
+guard alone is killed, for example by the OOM killer, the helper runs until its
+transfer ends or stalls. A claim's workspace survives a container restart until the
+next claim on that volume, though it holds no credential.
+
+A symlink or submodule link named `go.mod`, or a `go.mod` whose path or declared text
+is not valid as identity, yields a typed warning and a partial, untrusted result. It
+never reads as a repository with no modules, so it cannot earn a deletion.
 
 ## Supply Chain
 

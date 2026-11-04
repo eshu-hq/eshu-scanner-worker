@@ -90,7 +90,11 @@ Component lane, first slice (os_package_extraction):
   module-bearing result stays partial and untrusted until stage B (#48) wires the
   `Stage` seam. It takes the repository id, commit, and clone URL from the host's
   `host_derived_target` request key and the token from `host_github_app_token`,
-  and refuses static targets. Core admission is owed by eshu#10002 child C2, which
+  and refuses static targets. The token reaches only `github.com` unless the
+  activation sets `allowed_clone_hosts`. Stage A writes no worktree: it reads each
+  `go.mod` from the object store after holding the whole tree to the budgets. The
+  chart's `tmp` volume still needs a `sizeLimit` above the 2 GiB input budget, about
+  5 GiB, as the last line of defense. Core admission is owed by eshu#10002 child C2, which
   must plan `go-reachability://repository:r_<8 hex>` scopes, deliver that key,
   select a token installation for derived scopes, pin the image digest, and
   reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
