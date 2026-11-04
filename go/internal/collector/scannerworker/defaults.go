@@ -17,7 +17,7 @@ const gibibyte int64 = 1 << 30
 // scanner-worker analyzer profile.
 func DefaultResourceLimits(analyzer AnalyzerKind) (ResourceLimits, error) {
 	switch analyzer {
-	case AnalyzerSourceAnalysis, AnalyzerSecretScan, AnalyzerLicenseScan, AnalyzerMisconfigurationScan:
+	case AnalyzerSourceAnalysis, AnalyzerGoReachability, AnalyzerSecretScan, AnalyzerLicenseScan, AnalyzerMisconfigurationScan:
 		return ResourceLimits{
 			CPUMillis:     4000,
 			MemoryBytes:   4 * gibibyte,

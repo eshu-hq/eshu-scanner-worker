@@ -47,6 +47,19 @@ const (
 	// FailureClassCommitFailed covers retryable persistence failures after a
 	// scanner worker has produced bounded source facts.
 	FailureClassCommitFailed FailureClass = "commit_failed"
+	// FailureClassCheckoutFailed covers a repository fetch or checkout that did
+	// not produce the claimed commit. It is retryable.
+	FailureClassCheckoutFailed FailureClass = "checkout_failed"
+	// FailureClassAuthDenied covers a missing, empty, or wrongly scoped
+	// host-minted credential and a source that refused it. It is terminal.
+	FailureClassAuthDenied FailureClass = "auth_denied"
+	// FailureClassToolchainUnsupported covers a module whose go or toolchain
+	// directive is above the pinned toolchain. It is terminal for the
+	// generation; the module evidence is still emitted.
+	FailureClassToolchainUnsupported FailureClass = "toolchain_unsupported"
+	// FailureClassAnalysisFailed covers a module the analyzer could not read
+	// at this commit, such as a malformed go.mod.
+	FailureClassAnalysisFailed FailureClass = "analysis_failed"
 )
 
 // FailurePayload is the privacy-safe retry or dead-letter payload for scanner
@@ -128,7 +141,11 @@ func (c FailureClass) validate() error {
 		FailureClassTargetUnavailable,
 		FailureClassUnsupportedTarget,
 		FailureClassSourceUnavailable,
-		FailureClassCommitFailed:
+		FailureClassCommitFailed,
+		FailureClassCheckoutFailed,
+		FailureClassAuthDenied,
+		FailureClassToolchainUnsupported,
+		FailureClassAnalysisFailed:
 		return nil
 	default:
 		if strings.TrimSpace(string(c)) == "" {

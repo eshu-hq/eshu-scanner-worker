@@ -13,6 +13,31 @@ import (
 type AnalyzerResult struct {
 	Output FactOutput
 	Usage  ResourceUsage
+	// Completion optionally refines how the runner reports this result. Nil
+	// keeps the default: a complete snapshot generation with no attestation.
+	Completion *Completion
+}
+
+// Completion is what an analyzer attests about one finished analysis. The
+// runner maps it onto the SDK result state, status, and generation. It must be
+// deterministic for a claim, because the host pins the generation across the
+// stateless re-invocations of a paged result.
+type Completion struct {
+	// Partial reports useful but incomplete evidence: the runner emits
+	// ResultPartial with a partial warning status.
+	Partial bool
+	// WarningCount is how many warning facts this analysis emitted.
+	WarningCount int
+	// FailureClass names why the result is partial. Empty when it is not.
+	FailureClass FailureClass
+	// FreshnessHint identifies the observed source tuple. Empty keeps the
+	// default hint.
+	FreshnessHint string
+	// TrustedDeletion attests that a shrunken successor generation is real.
+	TrustedDeletion bool
+	// Figures are numeric counts for the stderr record. They hold numbers
+	// only, so no path, URL, or repository value can reach the log.
+	Figures map[string]int64
 }
 
 // Analyzer executes one bounded scanner-worker claim.
@@ -27,6 +52,7 @@ type AnalyzerFailure struct {
 	retryable bool
 	usage     ResourceUsage
 	detail    *InputLimitDetail
+	reason    string
 }
 
 // InputLimitDetail carries the byte figures behind an input_limit_exceeded
@@ -77,6 +103,20 @@ func (f AnalyzerFailure) InputLimit() (InputLimitDetail, bool) {
 		return InputLimitDetail{}, false
 	}
 	return *f.detail, true
+}
+
+// WithReason returns the failure with a bounded reason token that narrows its
+// class on the stderr record. A reason must be a compile-time constant: raw
+// causes can carry repository paths and URLs, so a caller never derives one
+// from an error.
+func (f AnalyzerFailure) WithReason(reason string) AnalyzerFailure {
+	f.reason = reason
+	return f
+}
+
+// Reason returns the bounded reason token, or empty when none was set.
+func (f AnalyzerFailure) Reason() string {
+	return f.reason
 }
 
 func (f AnalyzerFailure) Error() string {
