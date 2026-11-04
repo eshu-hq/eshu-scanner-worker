@@ -31,6 +31,17 @@ Retryable classes are `analysis_timeout`, `module_download_failed`, and
 `vulndb_unavailable`. They fail the whole claim once. From the second attempt each is
 terminal for its module and the rest of the result commits.
 
+## Freshness
+
+The hint hashes the commit, the component version, the vulnerability database timestamp,
+the pinned toolchain, and the govulncheck version. The store skips a generation whose hint
+matches the current one, so an unchanged scan commits nothing, and an upgraded component,
+scanner, or toolchain rescans the same commit.
+
+A partial result also hashes its sorted warning keys. Otherwise a failed module's
+generation would freeze a later clean scan of the same inputs. The same failure still
+repeats as a duplicate. Stable fact keys do not include any of this.
+
 ## Warnings
 
 Warnings are `scanner_worker.warning` facts with `analyzer: go_reachability`, the class
@@ -75,7 +86,9 @@ Real output that shaped the code, recorded in
   same line and exit 2. A scan that matched no packages reads the tree to tell them
   apart. A module with no Go files is a finished scan with no facts.
 - A vulnerable module that is required but never imported produces no finding at all, so
-  it has no fact and no warning and stays `unknown`.
+  it has no fact and no warning and stays `unknown`. It is never `not_called`: a run that
+  required `golang.org/x/crypto` at a vulnerable version without importing it reported
+  nothing for that module. A fixture corpus must expect `unknown` for this case.
 - govulncheck v1.9.0 emits `SBOM` messages, and osv bodies are 99% of the stream.
 
 ## Measured budgets
@@ -102,17 +115,19 @@ then warm. Peak RSS is `/usr/bin/time -v`, per module. Cache is `GOMODCACHE` plu
 
 What this decided, against the ruling's threshold of 10 minutes and 4 GiB:
 
-- **Memory did not hold.** eshu-hq/eshu's `go` module peaked at 10.6 GiB, and that run
-  stopped at type checking, so a large module that passes could go higher. The analyzer
-  row rises to 12 GiB. The pod limit must rise with it. Without that, the kernel kills the
-  scan, which costs one module as `analysis_failed` if it picks the child.
+- **Memory did not hold.** eshu-hq/eshu's `go` module peaked at 10.6 GiB, the highest of
+  any run here, and that run stopped at type checking, so a large module that passes could
+  go higher. The analyzer row rises to 12 GiB, and eshu-hq/eshu-deploy#40 carries the pod
+  limit, so a live run needs a node with that headroom. Below it the kernel kills the scan,
+  which costs one module as `analysis_failed` if it picks the child. Every other repository
+  here stayed under 1.4 GiB.
 - **Wall time held.** No claim passed 166 s and no module passed 135 s against the 10
   minute and 5 minute budgets.
 - **The cache limit held.** The largest single repository left 2.12 GB against the 4 GiB
   prune threshold, but a pod scanning several large repositories will prune often.
-- The toolchain pin is the largest source of missing evidence in this sample: every
-  module of etcd at HEAD and golang/tools' `gopls` need Go 1.27, above the pinned
-  `go1.26.10`.
+- `toolchain_unsupported` is expected on recent repositories: every module of etcd at HEAD
+  and golang/tools' `gopls` need Go 1.27, above the pinned `go1.26.10`. This is the largest
+  source of missing evidence in this sample, and it ends when the pin moves.
 
 Numbers not yet recorded: a large many-module repository that scans cleanly (etcd at a
 tag older than Go 1.27), and a re-run on the final image.

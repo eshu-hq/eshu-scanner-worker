@@ -12,6 +12,7 @@ import (
 	"maps"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/buildinfo"
@@ -29,8 +30,11 @@ type Options struct {
 	// Toolchain overrides the pinned toolchain. Empty means the toolchain that
 	// built this binary, which the image build pins.
 	Toolchain string
-	// ScannerVersion overrides the version in the freshness hint.
+	// ScannerVersion overrides the component version in the freshness hint.
 	ScannerVersion string
+	// GovulncheckVersion overrides the scanner version in the freshness hint. Empty
+	// means the version this build pins.
+	GovulncheckVersion string
 	// TempRoot overrides where checkouts live. Empty means the system temp dir.
 	TempRoot string
 	// Stage is the reachability analysis after module evidence. Nil means Stage A
@@ -74,8 +78,10 @@ type Analyzer struct {
 	git        gitRunner
 	toolchain  string
 	version    string
-	tempRoot   string
-	stage      Stage
+	// govulncheckVersion is the scanner version in the freshness hint.
+	govulncheckVersion string
+	tempRoot           string
+	stage              Stage
 }
 
 // NewAnalyzer validates the target and builds the analyzer. A credential defect
@@ -100,14 +106,15 @@ func NewAnalyzer(config Config) (*Analyzer, error) {
 		return nil, fmt.Errorf("go reachability target: %w", err)
 	}
 	analyzer := &Analyzer{
-		instanceID: config.CollectorInstanceID,
-		target:     target,
-		token:      config.Token,
-		git:        gitRunner{path: config.Options.GitPath, schemes: schemes, guard: config.Options.GitGuard},
-		toolchain:  config.Options.Toolchain,
-		version:    config.Options.ScannerVersion,
-		tempRoot:   config.Options.TempRoot,
-		stage:      config.Options.Stage,
+		instanceID:         config.CollectorInstanceID,
+		target:             target,
+		token:              config.Token,
+		git:                gitRunner{path: config.Options.GitPath, schemes: schemes, guard: config.Options.GitGuard},
+		toolchain:          config.Options.Toolchain,
+		version:            config.Options.ScannerVersion,
+		govulncheckVersion: config.Options.GovulncheckVersion,
+		tempRoot:           config.Options.TempRoot,
+		stage:              config.Options.Stage,
 	}
 	if analyzer.git.path == "" {
 		analyzer.git.path = "git"
@@ -117,6 +124,9 @@ func NewAnalyzer(config Config) (*Analyzer, error) {
 	}
 	if analyzer.version == "" {
 		analyzer.version = buildinfo.AppVersion()
+	}
+	if analyzer.govulncheckVersion == "" {
+		analyzer.govulncheckVersion = GovulncheckVersion
 	}
 	return analyzer, nil
 }
@@ -313,13 +323,21 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 		"stale_workspaces":   int64(staleRemoved),
 	}
 	maps.Copy(figures, outcome.Figures)
+	partial := modulesTotal > 0 && (a.stage == nil || omitted)
+	inputs := freshnessInputs{
+		commit:             emit.commitSHA,
+		componentVersion:   a.version,
+		govulncheckVersion: a.govulncheckVersion,
+		toolchain:          a.toolchain,
+		vulnDBLastModified: outcome.VulnDBLastModified,
+	}
 	return scannerworker.AnalyzerResult{
 		Output: scannerworker.FactOutput{TargetCount: 1, ResultCount: len(output), Facts: output},
 		Completion: &scannerworker.Completion{
-			Partial:         modulesTotal > 0 && (a.stage == nil || omitted),
+			Partial:         partial,
 			WarningCount:    len(warnings),
 			FailureClass:    failureClass,
-			FreshnessHint:   freshnessHint(emit.commitSHA, a.version, outcome.VulnDBLastModified, a.toolchain),
+			FreshnessHint:   freshnessHint(inputs, partialOutcome(partial, warnings)),
 			TrustedDeletion: true,
 			Figures:         figures,
 			Labels:          outcome.Labels,
@@ -348,9 +366,42 @@ func (a *Analyzer) selfCheck(modulesTotal int, read moduleRead, outcome StageOut
 	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassSelfCheckFailed, scannerworker.ResourceUsage{}, nil)
 }
 
-// freshnessHint hashes the ruled tuple, so an unchanged tuple is a host-side
-// duplicate and any change re-analyzes.
-func freshnessHint(commit, scannerVersion, vulnDBLastModified, toolchain string) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{commit, scannerVersion, vulnDBLastModified, toolchain}, "|")))
+// freshnessInputs is everything that can change what one commit's scan reports.
+type freshnessInputs struct {
+	commit             string
+	componentVersion   string
+	govulncheckVersion string
+	toolchain          string
+	vulnDBLastModified string
+}
+
+// freshnessHint hashes the inputs, so an unchanged scan of one commit is a host-side
+// duplicate and an upgraded component, scanner, toolchain, or database re-analyzes.
+//
+// A partial result also hashes its outcome. The store skips a generation whose hint
+// matches the current one, so without this a failed module's generation would freeze
+// a later clean scan of the same inputs until one of them moved. A clean result hashes
+// the inputs alone. This refines the snapshot rule in finish and changes no fact key.
+func freshnessHint(inputs freshnessInputs, outcome string) string {
+	parts := []string{inputs.commit, inputs.componentVersion, inputs.vulnDBLastModified, inputs.toolchain, inputs.govulncheckVersion}
+	if outcome != "" {
+		parts = append(parts, outcome)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// partialOutcome names a partial result by its sorted warning keys, so the same
+// failure repeats as a duplicate and a different one is stored. A clean result has no
+// outcome.
+func partialOutcome(partial bool, warnings []facts.Envelope) string {
+	if !partial {
+		return ""
+	}
+	keys := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		keys = append(keys, warning.StableFactKey)
+	}
+	slices.Sort(keys)
+	return "partial|" + strings.Join(keys, ",")
 }
