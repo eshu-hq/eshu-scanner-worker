@@ -29,7 +29,7 @@ environment: Go `go1.26.10`, `govulncheck@v1.9.0`, the same DB timestamp.
 | `gvcexp_go1_26_10_symbol.txt` | `govulncheck -mode source ./...` (exit 3) | govulncheck's own text summary, the parity oracle. |
 
 Each `stderr_*.txt` is a failed run's stderr under the same environment, with
-machine-local path prefixes removed and blank lines dropped.
+machine-local path prefixes removed, blank lines dropped, and trailing spaces trimmed.
 
 | File | Run | Exit |
 | --- | --- | --- |

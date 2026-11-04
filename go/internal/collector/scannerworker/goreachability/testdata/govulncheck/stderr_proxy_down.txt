@@ -1,4 +1,4 @@
-govulncheck: loading packages: 
+govulncheck: loading packages:
 There are errors with the provided package patterns:
 main.go:3:8: golang.org/x/text@v0.3.5: Get "https://127.0.0.1:1/golang.org/x/text/@v/v0.3.5.zip": dial tcp 127.0.0.1:1: connect: connection refused
 main.go:3:8: could not import golang.org/x/text/language (invalid package name: "")
