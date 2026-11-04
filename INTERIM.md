@@ -82,6 +82,19 @@ Component lane, first slice (os_package_extraction):
   `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` packages are linked to
   eshu-hq/eshu today, so this repository needs write access to them (package
   settings, "Manage Actions access") or its push fails.
+- Go reachability, stage A (#47, part of eshu-hq/eshu#10002): new work, not a
+  port, so it has no core parity golden. `scannerworker/goreachability` fetches
+  the claimed commit, reads each `go.mod`, and emits
+  `vulnerability.go_module_evidence`; `go/cmd/scanner-component-go-reachability`
+  and the `scanner-go-reachability` image follow the other components. Every
+  module-bearing result stays partial and untrusted until stage B (#48) wires the
+  `Stage` seam. Core admission is owed by eshu#10002 child C2, which must plan
+  `go-reachability://repository:r_<8 hex>` scopes, derive targets with
+  `clone_url` and `source_commit_sha`, select a token installation for derived
+  scopes, and reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
+  binary runs in the Eshu worker container after the seed copy, so it uses that
+  image's git; the seed contract delivers no Go toolchain or govulncheck there,
+  which stage B must settle.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

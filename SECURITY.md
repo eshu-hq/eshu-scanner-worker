@@ -23,17 +23,25 @@ Instead:
 
 1. Use [GitHub private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) if enabled for this repository.
 2. If private reporting is unavailable, contact the maintainers privately before disclosure.
-3. Include the impact, reproduction steps, affected component (`image`, `sbom`, or `osruntime`), and any suggested mitigation.
+3. Include the impact, reproduction steps, affected component (`image`, `sbom`, `osruntime`, or `go-reachability`), and any suggested mitigation.
 
 The analyzers parse untrusted input: container rootfs metadata, image layer
-archives, RPM databases, and repository lockfiles. Resource-limit bypasses,
-parser crashes, path escapes, and credential leaks into emitted facts are in
-scope.
+archives, RPM databases, repository lockfiles, and repository checkouts.
+Resource-limit bypasses, parser crashes, path escapes, and credential leaks into
+emitted facts are in scope.
+
+`go-reachability` is the only component that receives a credential: a host-minted
+GitHub installation token for one claim. It never reads a GitHub App key. The
+token reaches git only through the fetch process environment, as an
+`http.extraHeader` scoped to the clone URL's origin, so a token on a command
+line, in the checkout, in a log, or in a fact is a vulnerability. git runs with a
+clean environment, no system or global config, no hooks, redirects off, and the
+`https` transport alone. Repository content is parsed, never executed.
 
 ## Supply Chain
 
 `.github/workflows/release.yml` publishes
-`ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` for `linux/amd64` and
+`ghcr.io/eshu-hq/scanner-{image,sbom,osruntime,go-reachability}` for `linux/amd64` and
 `linux/arm64` with SLSA build provenance, a keyless cosign signature, and an
 SPDX SBOM attestation.
 
