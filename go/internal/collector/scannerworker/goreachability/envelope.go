@@ -21,6 +21,8 @@ const (
 	warningToolchainUnsupported = "toolchain_unsupported"
 	warningGoModParseFailed     = "go_mod_parse_failed"
 	warningGoModTooLarge        = "go_mod_too_large"
+	warningGoModNotRegular      = "go_mod_not_regular"
+	warningGoModInvalidPath     = "go_mod_invalid_path"
 	warningNoGoModules          = "no_go_modules"
 	warningNoRequirements       = "no_module_requirements"
 )
@@ -30,6 +32,8 @@ var warningDetails = map[string]string{
 	warningToolchainUnsupported: "a go or toolchain directive is above the pinned toolchain; this module is not analyzed for reachability",
 	warningGoModParseFailed:     "go.mod did not parse; no module evidence for this file",
 	warningGoModTooLarge:        "go.mod is above the read bound; no module evidence for this file",
+	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and this result attests nothing about it",
+	warningGoModInvalidPath:     "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
 	warningNoGoModules:          "no go.mod at this commit outside excluded directories",
 	warningNoRequirements:       "no go.mod at this commit declares a requirement",
 }

@@ -239,3 +239,18 @@ func readLog(t *testing.T, path string) string {
 	}
 	return string(raw)
 }
+
+// fixtureGitInput runs git with stdin, for the plumbing that builds crafted trees.
+func fixtureGitInput(t *testing.T, dir, input string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	cmd.Stdin = strings.NewReader(input)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}

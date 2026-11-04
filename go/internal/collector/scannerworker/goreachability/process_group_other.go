@@ -9,4 +9,4 @@ import "os/exec"
 
 // configureProcessGroup keeps the default cancellation where process groups do
 // not exist. The component ships for linux; this keeps the module buildable.
-func configureProcessGroup(*exec.Cmd) {}
+func configureProcessGroup(*exec.Cmd, bool) {}

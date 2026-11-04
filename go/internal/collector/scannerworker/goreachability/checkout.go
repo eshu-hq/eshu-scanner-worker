@@ -4,15 +4,14 @@
 package goreachability
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -28,61 +27,86 @@ const (
 	reasonSourceRefused  = "source_refused"
 	reasonTokenRejected  = "token_rejected"
 
-	// gitOutputLimit bounds what one git call may buffer. Output is used only
-	// to classify a failure, so the tail of a long progress stream is not needed.
-	gitOutputLimit = 64 * 1024
-	// gitWaitDelay bounds how long a cancelled git may hold its pipes open.
-	gitWaitDelay = 5 * time.Second
-	// gitBasicUser is the fixed user GitHub documents for an installation token
-	// used over HTTP basic authentication.
-	gitBasicUser = "x-access-token"
 	// sha256ObjectNameLength names a commit in a sha-256 repository, which git
 	// must initialize in that object format to fetch from.
 	sha256ObjectNameLength = 64
+	// fetchWatchInterval is how often a running fetch has its .git measured. A
+	// pack has no client-side size limit, so this is the only bound on the write.
+	fetchWatchInterval = time.Second
 )
 
-// inheritedEnv names the only variables git inherits: where binaries live and
-// how the deployment reaches the network. Everything else is withheld,
-// GIT_TRACE and GIT_CURL_VERBOSE above all, because they print the header.
-var inheritedEnv = []string{
-	"PATH", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO",
-}
-
-// gitRunner runs git for one checkout.
-type gitRunner struct {
-	path    string
-	schemes []string
-	home    string
-}
-
-// checkout fetches exactly one commit into dir and verifies HEAD equals it. The
+// fetchCommit fetches exactly one commit into dir under the byte budget and
+// verifies that the fetched object is that commit. It writes no worktree. The
 // token reaches only the fetch process, through its environment.
-func (g gitRunner) checkout(ctx context.Context, dir string, target TargetConfig, token HostToken) error {
+func (g gitRunner) fetchCommit(ctx context.Context, dir string, target TargetConfig, token HostToken, maxBytes int64) error {
 	initArgs := []string{"init", "--quiet", "--template="}
 	if len(target.SourceCommitSHA) == sha256ObjectNameLength {
 		initArgs = append(initArgs, "--object-format=sha256")
 	}
-	steps := []struct {
-		reason string
-		auth   bool
-		args   []string
-	}{
-		{reason: reasonFetchFailed, args: append(initArgs, dir)},
-		{reason: reasonFetchFailed, args: []string{"-C", dir, "remote", "add", "origin", target.CloneURL}},
-		{reason: reasonFetchFailed, auth: true, args: []string{"-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", "origin", target.SourceCommitSHA}},
-		{reason: reasonCheckoutFailed, args: []string{"-C", dir, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", "FETCH_HEAD"}},
-	}
-	for _, step := range steps {
-		credential := HostToken{}
-		if step.auth {
-			credential = token
-		}
-		if _, output, err := g.run(ctx, target.origin, credential, step.args...); err != nil {
-			return classifyGitFailure(err, output, step.reason)
+	for _, args := range [][]string{append(initArgs, dir), {"-C", dir, "remote", "add", "origin", target.CloneURL}} {
+		if _, output, err := g.run(ctx, target.origin, HostToken{}, args...); err != nil {
+			return classifyGitFailure(err, output, reasonFetchFailed)
 		}
 	}
-	head, output, err := g.run(ctx, target.origin, HostToken{}, "-C", dir, "rev-parse", "HEAD")
+	if err := g.watchedFetch(ctx, dir, target, token, maxBytes); err != nil {
+		return err
+	}
+	return g.verifyCommit(ctx, dir, target, "FETCH_HEAD^{commit}")
+}
+
+// watchedFetch runs the fetch while measuring .git, and cancels it the moment the
+// directory passes the byte budget. A final measure catches a fetch that finished
+// between two polls.
+func (g gitRunner) watchedFetch(ctx context.Context, dir string, target TargetConfig, token HostToken, maxBytes int64) error {
+	gitDir := filepath.Join(dir, ".git")
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var overBudget atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(fetchWatchInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+				if directorySize(gitDir) > maxBytes {
+					overBudget.Store(true)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	_, output, err := g.run(watchCtx, target.origin, token, "-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--no-recurse-submodules", "origin", target.SourceCommitSHA)
+	cancel()
+	<-done
+	if overBudget.Load() {
+		return inputLimitFailure()
+	}
+	if err != nil {
+		return classifyGitFailure(err, output, reasonFetchFailed)
+	}
+	if directorySize(gitDir) > maxBytes {
+		return inputLimitFailure()
+	}
+	return nil
+}
+
+// materialize writes the verified commit's whole tree for stage B. The manifest
+// has already held that tree to the budgets.
+func (g gitRunner) materialize(ctx context.Context, dir string, target TargetConfig) error {
+	if _, output, err := g.run(ctx, target.origin, HostToken{}, "-C", dir, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", target.SourceCommitSHA); err != nil {
+		return classifyGitFailure(err, output, reasonCheckoutFailed)
+	}
+	return g.verifyCommit(ctx, dir, target, "HEAD")
+}
+
+// verifyCommit proves a revision is the claimed commit.
+func (g gitRunner) verifyCommit(ctx context.Context, dir string, target TargetConfig, revision string) error {
+	head, output, err := g.run(ctx, target.origin, HostToken{}, "-C", dir, "rev-parse", "--verify", "--end-of-options", revision)
 	if err != nil {
 		return classifyGitFailure(err, output, reasonCheckoutFailed)
 	}
@@ -92,57 +116,20 @@ func (g gitRunner) checkout(ctx context.Context, dir string, target TargetConfig
 	return nil
 }
 
-// run executes one git call and returns stdout and combined diagnostics. Neither
-// is ever logged or returned to a caller outside this file.
-func (g gitRunner) run(ctx context.Context, origin string, token HostToken, args ...string) (string, string, error) {
-	cmd := exec.CommandContext(ctx, g.path, args...) // #nosec G204 -- the commit and URL passed validate(), and the path is this binary's git, never claim input
-	cmd.Env = g.environment(origin, token)
-	cmd.WaitDelay = gitWaitDelay
-	configureProcessGroup(cmd)
-	stdout := &boundedBuffer{limit: gitOutputLimit}
-	stderr := &boundedBuffer{limit: gitOutputLimit}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
-}
-
-// environment builds git's whole environment. Starting from nothing means an
-// inherited variable cannot turn on tracing, swap the transport, or read a
-// credential helper. The header is scoped to the clone URL's origin, and
-// redirects are off because git would otherwise repeat the header to the
-// redirect target.
-func (g gitRunner) environment(origin string, token HostToken) []string {
-	env := make([]string, 0, len(inheritedEnv)+16)
-	for _, name := range inheritedEnv {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
+// directorySize sums the files under dir. git renames temporary files as it
+// works, so a file that vanishes mid-walk is simply not counted.
+func directorySize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // a vanished entry is not a measuring failure
 		}
-	}
-	env = append(env,
-		"HOME="+g.home,
-		"XDG_CONFIG_HOME="+g.home,
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ALLOW_PROTOCOL="+strings.Join(g.schemes, ":"),
-		"GIT_LFS_SKIP_SMUDGE=1",
-		"LC_ALL=C",
-	)
-	config := [][2]string{
-		{"http.followRedirects", "false"},
-		{"credential.helper", ""},
-		{"core.hooksPath", os.DevNull},
-	}
-	if token.value != "" {
-		credential := base64.StdEncoding.EncodeToString([]byte(gitBasicUser + ":" + token.value))
-		config = append(config, [2]string{"http." + origin + "/.extraHeader", "Authorization: Basic " + credential})
-	}
-	env = append(env, fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(config)))
-	for i, entry := range config {
-		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, entry[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, entry[1]))
-	}
-	return env
+		if info, infoErr := entry.Info(); infoErr == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 // classifyGitFailure maps one failed git call to a bounded failure. The cause
@@ -196,6 +183,18 @@ func authFailure(tokenRejected bool) error {
 	return asFailure(failure).WithReason(reason)
 }
 
+func inputLimitFailure() error {
+	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassInputLimitExceeded, scannerworker.ResourceUsage{}, nil)
+}
+
+func fileLimitFailure() error {
+	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassFileLimitExceeded, scannerworker.ResourceUsage{}, nil)
+}
+
+func factLimitFailure() error {
+	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassFactLimitExceeded, scannerworker.ResourceUsage{}, nil)
+}
+
 // asFailure unwraps the constructors' error type. They always return
 // scannerworker.AnalyzerFailure.
 func asFailure(err error) scannerworker.AnalyzerFailure {
@@ -203,23 +202,3 @@ func asFailure(err error) scannerworker.AnalyzerFailure {
 	errors.As(err, &failure)
 	return failure
 }
-
-// boundedBuffer keeps the first limit bytes and discards the rest, reporting
-// every write as complete so git never blocks on a full pipe.
-type boundedBuffer struct {
-	buffer bytes.Buffer
-	limit  int
-}
-
-// Write implements io.Writer.
-func (b *boundedBuffer) Write(p []byte) (int, error) {
-	if room := b.limit - b.buffer.Len(); room > 0 {
-		b.buffer.Write(p[:min(room, len(p))])
-	}
-	return len(p), nil
-}
-
-// String returns the kept output.
-func (b *boundedBuffer) String() string { return b.buffer.String() }
-
-var _ io.Writer = (*boundedBuffer)(nil)

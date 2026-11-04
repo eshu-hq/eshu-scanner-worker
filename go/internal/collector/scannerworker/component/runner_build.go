@@ -137,6 +137,9 @@ func buildGoReachability(claim sdkcollector.Claim, config Config, options goreac
 	if config.derivedTarget.ScopeID != claim.Scope.ID {
 		return nil, fmt.Errorf("%w: host_derived_target is for another scope", errBadTargetConfig)
 	}
+	if len(config.allowedCloneHosts) > 0 {
+		options.AllowedCloneHosts = config.allowedCloneHosts
+	}
 	analyzer, err := goreachability.NewAnalyzer(goreachability.Config{
 		CollectorInstanceID: claim.InstanceID,
 		Target:              config.derivedTarget,

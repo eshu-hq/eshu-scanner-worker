@@ -29,6 +29,10 @@ const (
 	// goModulesDeriveKey is the coordinator's activation section. The component
 	// ignores its contents: it plans nothing.
 	goModulesDeriveKey = "derive_from_go_modules"
+	// allowedCloneHostsKey is the operator's list of hosts the token may reach. It
+	// sits in the activation config, never in the host-derived target, so a target
+	// cannot widen it. Absent means github.com alone. Only go_reachability reads it.
+	allowedCloneHostsKey = "allowed_clone_hosts"
 )
 
 // Config is the activation config a scanner component accepts inside the host
@@ -40,6 +44,8 @@ type Config struct {
 	hostToken goreachability.HostToken
 	// derivedTarget is the host's target for a go_reachability claim.
 	derivedTarget goreachability.TargetConfig
+	// allowedCloneHosts is the operator's allowed_clone_hosts, validated.
+	allowedCloneHosts []string
 
 	// Targets carries the analyzer-native target documents. Each entry
 	// decodes into the analyzer's own TargetConfig shape (imageanalyzer,
@@ -90,6 +96,7 @@ func parseGoReachabilityConfig(raw map[string]any) (Config, error) {
 	delete(stripped, hostTokenKey)
 	delete(stripped, hostDerivedTargetKey)
 	delete(stripped, goModulesDeriveKey)
+	delete(stripped, allowedCloneHostsKey)
 	config, err := decodeConfig(stripped)
 	if err != nil {
 		return Config{}, err
@@ -104,7 +111,36 @@ func parseGoReachabilityConfig(raw map[string]any) (Config, error) {
 	config.derivedTarget = target
 	config.AcceptanceUnitID = target.ScopeID
 	config.hostToken = goreachability.ParseHostToken(raw[hostTokenKey])
+	if value, present := raw[allowedCloneHostsKey]; present {
+		hosts, err := parseCloneHosts(value)
+		if err != nil {
+			return Config{}, err
+		}
+		config.allowedCloneHosts = hosts
+	}
 	return config, nil
+}
+
+// parseCloneHosts reads and validates allowed_clone_hosts. Present and unusable is
+// an error rather than the default, so a typo cannot quietly change where the token
+// goes. An error never echoes a value.
+func parseCloneHosts(value any) ([]string, error) {
+	items, ok := value.([]any)
+	if !ok {
+		return nil, errors.New("allowed_clone_hosts must be a list of host names")
+	}
+	hosts := make([]string, 0, len(items))
+	for _, item := range items {
+		host, ok := item.(string)
+		if !ok {
+			return nil, errors.New("allowed_clone_hosts must be a list of host names")
+		}
+		hosts = append(hosts, host)
+	}
+	if err := goreachability.ValidateCloneHosts(hosts); err != nil {
+		return nil, err
+	}
+	return hosts, nil
 }
 
 // decodeConfig runs the strict decode every component shares.

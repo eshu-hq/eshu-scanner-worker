@@ -12,7 +12,7 @@ import (
 )
 
 func validTarget() TargetConfig {
-	return TargetConfig{ScopeID: testScopeID, RepositoryID: testRepositoryID, CloneURL: "https://github.com/org/repo.git", SourceCommitSHA: strings.Repeat("a", 40)}
+	return TargetConfig{ScopeID: testScopeID, RepositoryID: testRepositoryID, CloneURL: "https://github.com/org/repo", SourceCommitSHA: strings.Repeat("a", 40)}
 }
 
 // TestRepositoryIDFromScopeIsStrict accepts only the canonical derived shape.
@@ -50,10 +50,10 @@ func TestNewAnalyzerRejectsUnsafeTargets(t *testing.T) {
 		t.Fatalf("valid target: %v", err)
 	}
 	for _, url := range []string{
-		"", "http://github.com/o/r.git", "file:///etc", "ssh://git@github.com/o/r.git", "git@github.com:o/r.git",
-		"ext::sh -c id", "https://user:SENTINEL@github.com/o/r.git", "https://github.com/o/r.git?x=SENTINEL",
-		"https://github.com/o/r.git#SENTINEL", "https:///o/r.git", "--upload-pack=SENTINEL",
-		"https://github.com/o/r.git\nSENTINEL", "https://github.com/o/ r.git",
+		"", "http://github.com/o/r", "file:///etc", "ssh://git@github.com/o/r", "git@github.com:o/r",
+		"ext::sh -c id", "https://user:SENTINEL@github.com/o/r", "https://github.com/o/r?x=SENTINEL",
+		"https://github.com/o/r#SENTINEL", "https://github.com/o/r?", "https:///o/r", "--upload-pack=SENTINEL",
+		"https://github.com/o/r\nSENTINEL", "https://github.com/o/ r", "%zz://github.com/o/r",
 	} {
 		target := validTarget()
 		target.CloneURL = url
@@ -101,7 +101,7 @@ func TestAnalyzeRefusesAClaimOutsideItsTarget(t *testing.T) {
 	other := validTarget()
 	other.ScopeID = "go-reachability://repository:r_ffffffff"
 	other.RepositoryID = "repository:r_ffffffff"
-	analyzer := fixtureAnalyzer(t, "https://github.com/o/r.git", strings.Repeat("a", 40), func(c *Config) {
+	analyzer := fixtureAnalyzer(t, "https://github.com/o/r", strings.Repeat("a", 40), func(c *Config) {
 		c.Target = other
 		c.Options.AllowedSchemes = nil
 	})
@@ -150,8 +150,8 @@ func TestOversizedGoModWarnsInsteadOfBeingRead(t *testing.T) {
 	}
 }
 
-// TestSymlinkedGoModIsNotFollowed proves a link inside the checkout cannot read
-// a file outside it.
+// TestSymlinkedGoModIsNotFollowed proves a link cannot read a file outside the
+// repository, and that the regular module beside it keeps its evidence.
 func TestSymlinkedGoModIsNotFollowed(t *testing.T) {
 	t.Parallel()
 
@@ -159,5 +159,8 @@ func TestSymlinkedGoModIsNotFollowed(t *testing.T) {
 	result := analyze(t, fixtureAnalyzer(t, url, shas, nil))
 	if got := evidenceOf(result.Output); len(got) != 1 || got[0] != "go.mod m.test/a v1.0.0" {
 		t.Fatalf("evidence = %v, want only the regular go.mod", got)
+	}
+	if got := warningsOf(result.Output); len(got) != 1 || got[0] != "go_mod_not_regular sub/go.mod" {
+		t.Fatalf("warnings = %v", got)
 	}
 }

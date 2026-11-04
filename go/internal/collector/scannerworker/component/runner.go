@@ -311,16 +311,27 @@ func (r Runner) clock() time.Time {
 	return time.Now().UTC()
 }
 
-// analyzeContext bounds one analysis by the analyzer resource timeout. The
-// host owns the claim lease; this only stops a runaway analyzer from
-// holding the call past its budget.
+// analyzeContext bounds one analysis by the analyzer resource timeout and by the
+// claim deadline, whichever comes first. The host owns the claim lease and kills
+// the process when it runs out. Stopping leaseStopMargin earlier stops an analyzer's
+// children in order and leaves time to emit a result. A deadline already inside the
+// margin is left to the host.
 func (r Runner) analyzeContext(ctx context.Context, input scannerworker.ClaimInput) (context.Context, context.CancelFunc) {
 	timeout := input.Limits.Timeout
+	if !input.LeaseExpiresAt.IsZero() {
+		remaining := input.LeaseExpiresAt.Sub(r.clock()) - leaseStopMargin
+		if remaining > 0 && (timeout <= 0 || remaining < timeout) {
+			timeout = remaining
+		}
+	}
 	if timeout <= 0 {
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, timeout)
 }
+
+// leaseStopMargin is how long before the claim deadline an analysis stops.
+const leaseStopMargin = 10 * time.Second
 
 // pageBound resolves the per-call page byte bound: the operator-narrowed
 // value when configured, else the stdout-derived default both sides mirror.

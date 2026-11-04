@@ -33,8 +33,9 @@ type StageInput struct {
 	SourceCommitSHA string
 	// SourceURI is the sanitized clone URL for source_ref.uri.
 	SourceURI string
-	// CheckoutDir is the private checkout. It holds no credential and is removed
-	// when Analyze returns.
+	// CheckoutDir is the private checkout of the whole verified tree, written only
+	// when a stage runs, after that tree passed the byte and file budgets. It holds
+	// no credential and is removed when Analyze returns.
 	CheckoutDir string
 	// Modules lists the eligible modules in lexical order.
 	Modules []Module
@@ -60,7 +61,9 @@ type ModuleFailure struct {
 }
 
 // StageOutcome is what stage B reports. The analyzer attests deletion only when
-// ModulesAnalyzed covers every eligible module and Failed is empty.
+// ModulesAnalyzed equals every module the tree holds, eligible or not, and Failed
+// is empty. A module above the pin or with an unusable go.mod is never eligible, so
+// any such module keeps the result partial and untrusted.
 type StageOutcome struct {
 	// Facts holds the stage B source facts.
 	Facts []facts.Envelope

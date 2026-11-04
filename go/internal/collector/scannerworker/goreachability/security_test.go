@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,12 +152,12 @@ func TestCheckoutDirectoryIsRemovedAfterAnalysis(t *testing.T) {
 		root := t.TempDir()
 		analyzer := fixtureAnalyzer(t, url, sha, func(c *Config) { c.Options.TempRoot = root })
 		_, _ = analyzer.Analyze(context.Background(), testInput(t))
-		entries, err := os.ReadDir(root)
+		claims, err := filepath.Glob(filepath.Join(root, workspaceRootName, claimDirPrefix+"*"))
 		if err != nil {
-			t.Fatalf("%s: ReadDir: %v", name, err)
+			t.Fatalf("%s: Glob: %v", name, err)
 		}
-		if len(entries) != 0 {
-			t.Fatalf("%s: left %d entries in the temp root", name, len(entries))
+		if len(claims) != 0 {
+			t.Fatalf("%s: left %v in the workspace root", name, claims)
 		}
 	}
 }
@@ -193,17 +192,22 @@ func TestHostTokenDefectsAreTerminalBeforeGitRuns(t *testing.T) {
 	}
 }
 
-// TestHostTokenNeverFormats proves no fmt verb or JSON encoder reveals it.
-func TestHostTokenNeverFormats(t *testing.T) {
+// TestHostTokenNeverEncodes proves the direct conversions and the JSON encoder
+// redact. TestHostTokenRedactsEveryVerb covers fmt.
+func TestHostTokenNeverEncodes(t *testing.T) {
 	t.Parallel()
 
 	token := ParseHostToken(map[string]any{"token": testToken, "scope_id": testScopeID})
-	raw, err := json.Marshal(token)
+	raw, err := json.Marshal(struct {
+		Token HostToken
+	}{token})
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	config := Config{Token: token}
-	assertNoToken(t, "formatted", fmt.Sprintf("%v %+v %#v %s %q %v %+v", token, token, token, token, token, config, config)+string(raw))
+	assertNoToken(t, "encoded", string(raw)+token.String()+token.GoString())
+	if !strings.Contains(string(raw), redactedToken) || token.String() != redactedToken || token.GoString() != redactedToken {
+		t.Fatalf("raw = %s, String = %s, GoString = %s, want the redaction", raw, token, token.GoString())
+	}
 }
 
 // TestSourceRefusalIsAuthDenied drives real git against loopback servers: the

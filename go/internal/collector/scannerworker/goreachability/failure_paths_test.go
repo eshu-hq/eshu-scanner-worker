@@ -6,7 +6,6 @@ package goreachability
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +15,8 @@ import (
 )
 
 // TestEachGitStepFailureIsClassified fails one git step at a time through the
-// shim and proves the bounded reason names the step.
+// shim and proves the bounded reason names the step. A checkout runs only for a
+// stage, so that row wires one.
 func TestEachGitStepFailureIsClassified(t *testing.T) {
 	t.Parallel()
 
@@ -25,14 +25,19 @@ func TestEachGitStepFailureIsClassified(t *testing.T) {
 		"init":      reasonFetchFailed,
 		"remote":    reasonFetchFailed,
 		"fetch":     reasonFetchFailed,
-		"checkout":  reasonCheckoutFailed,
 		"rev-parse": reasonCheckoutFailed,
+		"ls-tree":   reasonCheckoutFailed,
+		"cat-file":  reasonCheckoutFailed,
+		"checkout":  reasonCheckoutFailed,
 	} {
 		t.Run(subcommand, func(t *testing.T) {
 			t.Parallel()
 
 			shim, _ := gitShim(t, failOnArgument(subcommand, ""))
-			analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.GitPath = shim })
+			analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) {
+				c.Options.GitPath = shim
+				c.Options.Stage = &recordingStage{t: t}
+			})
 			_, err := analyzer.Analyze(context.Background(), testInput(t))
 			wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
 			wantReason(t, err, reason)
@@ -53,7 +58,7 @@ func TestCheckoutRefusalTextIsOnlyReadOnTheFetch(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
-	shim, _ := gitShim(t, failOnArgument("checkout", "Authentication failed"))
+	shim, _ := gitShim(t, failOnArgument("ls-tree", "Authentication failed"))
 	analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.GitPath = shim })
 	_, err := analyzer.Analyze(context.Background(), testInput(t))
 	wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
@@ -112,58 +117,6 @@ func TestUnusableTempRootIsRetryable(t *testing.T) {
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.TempRoot = filepath.Join(t.TempDir(), "missing") })
 	_, err := analyzer.Analyze(context.Background(), testInput(t))
-	wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
-}
-
-// TestDiscoverReportsAnUnreadableTree proves a directory or go.mod the walk
-// cannot read fails the claim rather than silently losing a module.
-func TestDiscoverReportsAnUnreadableTree(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads every file; permissions cannot make this fail")
-	}
-	t.Parallel()
-
-	limits := testInput(t).Limits
-	for name, build := range map[string]func(t *testing.T, root string){
-		"directory": func(t *testing.T, root string) {
-			dir := filepath.Join(root, "locked")
-			if err := os.Mkdir(dir, 0o700); err != nil {
-				t.Fatalf("Mkdir: %v", err)
-			}
-			if err := os.Chmod(dir, 0); err != nil {
-				t.Fatalf("Chmod: %v", err)
-			}
-			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-		},
-		"go.mod": func(t *testing.T, root string) {
-			path := filepath.Join(root, "go.mod")
-			if err := os.WriteFile(path, []byte("module m.test/a\n"), 0o600); err != nil {
-				t.Fatalf("WriteFile: %v", err)
-			}
-			if err := os.Chmod(path, 0); err != nil {
-				t.Fatalf("Chmod: %v", err)
-			}
-			t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			root := t.TempDir()
-			build(t, root)
-			_, err := discoverGoMods(context.Background(), root, limits)
-			wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
-		})
-	}
-}
-
-// TestDiscoverStopsOnACancelledContext proves the walk honors the deadline.
-func TestDiscoverStopsOnACancelledContext(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := discoverGoMods(ctx, t.TempDir(), testInput(t).Limits)
 	wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
 }
 
