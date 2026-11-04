@@ -115,7 +115,7 @@ then warm. Peak RSS is `/usr/bin/time -v`, per module. Cache is `GOMODCACHE` plu
 
 What this decided, against the ruling's threshold of 10 minutes and 4 GiB:
 
-- **Memory did not hold.** eshu-hq/eshu's `go` module peaked at 10.6 GiB, the highest of
+- **Memory did not hold.** eshu-hq/eshu's `go` module peaked at 10.3 GiB, the highest of
   any run here, and that run stopped at type checking, so a large module that passes could
   go higher. The analyzer row rises to 12 GiB, and eshu-hq/eshu-deploy#40 carries the pod
   limit, so a live run needs a node with that headroom. Below it the kernel kills the scan,

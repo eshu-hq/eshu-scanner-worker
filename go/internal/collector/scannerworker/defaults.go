@@ -27,7 +27,7 @@ func DefaultResourceLimits(analyzer AnalyzerKind) (ResourceLimits, error) {
 			MaxFacts:      50000,
 		}, nil
 	case AnalyzerGoReachability:
-		// The source-analysis row with more memory: govulncheck measured 10.6 GiB
+		// The source-analysis row with more memory: govulncheck measured 10.3 GiB
 		// peak on eshu-hq/eshu's largest module. See goreachability/README.md.
 		return ResourceLimits{
 			CPUMillis:     4000,
