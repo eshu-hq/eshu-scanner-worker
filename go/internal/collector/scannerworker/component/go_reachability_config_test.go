@@ -23,6 +23,33 @@ func goReachabilityClaim() sdkcollector.Claim {
 	return testClaim(IDGoReachability, goReachabilityScope, "gen-go-1")
 }
 
+// wantGoReachabilityBadConfig runs the production transport policy with the
+// toolchain check out of the way, so the target defect itself is what fails: a
+// missing toolchain has the same class and would hide a dropped check.
+func wantGoReachabilityBadConfig(t *testing.T, config map[string]any) {
+	t.Helper()
+
+	var stdout, stderr bytes.Buffer
+	runner := Runner{
+		ComponentID:    IDGoReachability,
+		Stdin:          bytes.NewReader(testRequest(t, goReachabilityClaim(), config)),
+		Stdout:         &stdout,
+		Stderr:         &stderr,
+		Clock:          testClock,
+		goReachability: goreachability.Options{StageAOnly: true},
+	}
+	if err := runner.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	page := decodePage(t, stdout.Bytes())
+	if page.State != sdkcollector.ResultTerminal || len(page.Statuses) != 1 || page.Statuses[0].FailureClass != "component_bad_config" {
+		t.Fatalf("page = %+v, want terminal component_bad_config", page)
+	}
+	if len(page.Facts) != 0 {
+		t.Fatalf("facts = %d, want none", len(page.Facts))
+	}
+}
+
 func validDerivedConfig() map[string]any {
 	return goReachabilityConfig("https://github.com/o/r", strings.Repeat("a", 40), goReachabilityTokenStanza())
 }
@@ -64,10 +91,7 @@ func TestGoReachabilityDerivedTargetDefectsAreTerminal(t *testing.T) {
 
 			config := validDerivedConfig()
 			mutate(config)
-			page := runTerminal(t, IDGoReachability, testRequest(t, goReachabilityClaim(), config), "component_bad_config")
-			if len(page.Facts) != 0 {
-				t.Fatalf("facts = %d, want none", len(page.Facts))
-			}
+			wantGoReachabilityBadConfig(t, config)
 		})
 	}
 }
@@ -85,7 +109,7 @@ func TestGoReachabilityRefusesStaticTargetMaterial(t *testing.T) {
 	} {
 		config := validDerivedConfig()
 		config[key] = value
-		runTerminal(t, IDGoReachability, testRequest(t, goReachabilityClaim(), config), "component_bad_config")
+		wantGoReachabilityBadConfig(t, config)
 	}
 }
 
@@ -172,7 +196,7 @@ func TestAllowedCloneHostsIsTheOperatorsSetting(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = buildGoReachability(goReachabilityClaim(), config, goreachability.Options{})
+		_, err = buildGoReachability(goReachabilityClaim(), config, goreachability.Options{StageAOnly: true})
 		return err
 	}
 	if err := build(base()); err == nil {

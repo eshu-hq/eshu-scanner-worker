@@ -36,7 +36,8 @@ token reaches git only through the fetch process environment, as an
 `http.extraHeader` scoped to the clone URL's origin, so a token on a command
 line, in the checkout, in a log, or in a fact is a vulnerability. git runs with a
 clean environment, no system or global config, no hooks, redirects off, maintenance
-off, and the `https` transport alone. Repository content is parsed, never executed.
+off, and the `https` transport alone. Repository content is parsed and type-checked,
+never executed.
 
 The token goes only to a canonical remote on an allowed host. The default is
 `github.com`. An operator can replace that list with the activation's
@@ -69,6 +70,16 @@ it could not observe. A committer who can replace a `go.mod` with a link can als
 delete its `require` lines; the defense is the named warning in readiness, not a
 size-dependent guard. A claim commits nothing on a checkout, auth, or budget failure,
 or when its module counts do not add up.
+
+Its image also carries one Go toolchain and one govulncheck, which the seed step
+copies beside the collector. govulncheck runs as a child whose environment is built
+from nothing: `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, `GOFLAGS=-mod=mod`,
+`GOVCS=*:off`, and a `GOPROXY` with no `direct`, so a repository cannot pick a
+toolchain, reach a C compiler, or make the go command run a version-control tool.
+The token never reaches that child, and a token or host credential in its
+environment is a vulnerability. Operators may set only `GOPROXY`, `GOSUMDB`,
+`GOVULNDB`, `HTTPS_PROXY`, `NO_PROXY`, and `SSL_CERT_FILE`; a Go policy variable
+fails the claim.
 
 ## Supply Chain
 

@@ -103,8 +103,15 @@ Component lane, first slice (os_package_extraction):
   select a token installation for derived scopes, pin the image digest, and
   reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
   binary runs in the Eshu worker container after the seed copy, so it uses that
-  image's git; the seed contract delivers no Go toolchain or govulncheck there,
-  which stage B must settle.
+  image's git.
+- Go reachability, stage B (#48): `goreachability.ScanStage` runs the seeded
+  govulncheck per module and emits `vulnerability.go_call_reachability`. The image
+  carries a trimmed GOROOT and a govulncheck pinned by go.sum, and `Seed` copies both
+  to `<dest>/toolchain`. Failures are `scanner_worker.warning` with `reason`,
+  `repository_id`, and `relative_path`; those two keys are written untyped until the
+  SDK release that types them. Provenance keys on the reachability fact wait the same
+  way. A clean symbol scan of every module is complete and trusted; anything else
+  stays partial and untrusted. See `goreachability/README.md` for the measured budgets.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

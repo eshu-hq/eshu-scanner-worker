@@ -38,6 +38,9 @@ type Completion struct {
 	// Figures are numeric counts for the stderr record. They hold numbers
 	// only, so no path, URL, or repository value can reach the log.
 	Figures map[string]int64
+	// Labels are bounded strings for the stderr record, such as a pinned tool
+	// version. A caller must never put a path, URL, or repository value here.
+	Labels map[string]string
 }
 
 // Analyzer executes one bounded scanner-worker claim.

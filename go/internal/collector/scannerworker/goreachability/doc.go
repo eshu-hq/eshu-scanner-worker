@@ -10,9 +10,16 @@
 // `git ls-tree`, reads each go.mod outside .git, vendor, testdata, and node_modules
 // with `git cat-file`, parses each with golang.org/x/mod/modfile, and emits one
 // vulnerability.go_module_evidence fact per require with its replace applied. Stage
-// A writes no worktree, so no filter, symlink, or hostile path reaches the disk. Stage
-// B (eshu-hq/eshu-scanner-worker#48) runs govulncheck behind the Stage seam in
-// stage.go, over a full checkout written once the tree has passed the budgets.
+// A writes no worktree, so no filter, symlink, or hostile path reaches the disk.
+//
+// Stage B (eshu-hq/eshu-scanner-worker#48, ScanStage behind the Stage seam) runs
+// the seeded govulncheck as a child per module, parses its stream on the upstream
+// schema, folds every finding of one (advisory, module) pair to one answer, and
+// emits one vulnerability.go_call_reachability fact. A module that does not finish
+// yields a scanner_worker.warning and no reachability fact, so a failed scan can
+// never read as not_called. The child's environment is built from nothing, so the
+// token never reaches it; repository code is type-checked and never executed. It
+// runs over a full checkout written once the tree has passed the budgets.
 //
 // Identity comes from the host. The repository id and commit are read from the
 // host_derived_target request key, whose scope must equal the claim scope
@@ -38,7 +45,8 @@
 // same generation, so its earlier evidence leaves truth and reads as missing evidence
 // instead of surviving as stale truth. Partial is telemetry and readiness only. A
 // failure that cannot meet this rule commits nothing: a checkout, auth, or budget
-// failure, and a module count that does not add up (self_check_failed).
+// failure, a retryable module class, and a module count that does not add up
+// (self_check_failed).
 //
 // Errors carry bounded classes and reasons, never a path, URL, or repository value.
 // Warning facts name a go.mod by relative_path, and never carry its text. Budgets are

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -33,7 +34,8 @@ type Options struct {
 	// TempRoot overrides where checkouts live. Empty means the system temp dir.
 	TempRoot string
 	// Stage is the reachability analysis after module evidence. Nil means Stage A
-	// alone, whose module-bearing results are always partial.
+	// alone, whose module-bearing results are always partial. Production
+	// wires DefaultStage.
 	Stage Stage
 	// AllowedCloneHosts is the operator's allowed_clone_hosts. Empty means
 	// github.com alone. It replaces the default rather than adding to it.
@@ -42,6 +44,14 @@ type Options struct {
 	// binary and GitGuardCommand. Empty runs the fetch directly, which the component
 	// entrypoint never does, because a killed component would then orphan git.
 	GitGuard []string
+	// StageAOnly keeps Stage nil where DefaultStage would otherwise run. Test seam
+	// only: it lets a test exercise the checkout without a seeded toolchain.
+	StageAOnly bool
+	// ToolchainDir overrides where DefaultStage looks for the seeded toolchain.
+	ToolchainDir string
+	// Lookup overrides how DefaultStage reads operator environment variables. Nil
+	// reads the process environment.
+	Lookup func(string) (string, bool)
 }
 
 // Config builds an Analyzer.
@@ -168,10 +178,12 @@ func (a *Analyzer) runStage(ctx context.Context, git gitRunner, emit emitContext
 	}
 	return a.stage.Run(ctx, StageInput{
 		Claim:           emit.input,
+		InstanceID:      emit.instanceID,
 		RepositoryID:    emit.repositoryID,
 		SourceCommitSHA: emit.commitSHA,
 		SourceURI:       emit.sourceURI,
 		CheckoutDir:     checkoutDir,
+		ScratchDir:      filepath.Dir(checkoutDir),
 		Modules:         eligible,
 	})
 }
@@ -262,11 +274,11 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 // the full snapshot of one commit: a unit the component could not observe is named by
 // a warning in the same generation, so the omission is never silent and the component
 // attests TrustedDeletion on every commit. A module with an unusable go.mod, or whose
-// stage run failed, leaves its earlier evidence behind with the prior generation and
-// reads as missing evidence, because that evidence described another commit. Partial
-// is telemetry and readiness only; it never decides supersession. What cannot meet
-// this rule never commits: a stage returns a retryable class as an error, and a count
-// that does not add up fails terminal here.
+// stage run failed, leaves its earlier evidence and reachability behind with the prior
+// generation and reads as missing evidence, because they described another commit or
+// database. Partial is telemetry and readiness only; it never decides supersession.
+// What cannot meet this rule never commits: a retryable class fails the whole claim in
+// the stage, and a count that does not add up fails terminal here.
 func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, outcome StageOutcome, maxFacts, staleRemoved int) (scannerworker.AnalyzerResult, error) {
 	if err := a.selfCheck(modulesTotal, read, outcome); err != nil {
 		return scannerworker.AnalyzerResult{}, err
@@ -292,34 +304,42 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 	if len(output) > maxFacts {
 		return scannerworker.AnalyzerResult{}, factLimitFailure()
 	}
-	partial := modulesTotal > 0 && (a.stage == nil || omitted)
+	figures := map[string]int64{
+		"modules_total":      int64(modulesTotal),
+		"modules_analyzed":   int64(outcome.ModulesAnalyzed),
+		"requirements_total": int64(read.requirements),
+		"warnings_total":     int64(len(warnings)),
+		"invalid_paths":      int64(read.invalidPaths),
+		"stale_workspaces":   int64(staleRemoved),
+	}
+	maps.Copy(figures, outcome.Figures)
 	return scannerworker.AnalyzerResult{
 		Output: scannerworker.FactOutput{TargetCount: 1, ResultCount: len(output), Facts: output},
 		Completion: &scannerworker.Completion{
-			Partial:         partial,
+			Partial:         modulesTotal > 0 && (a.stage == nil || omitted),
 			WarningCount:    len(warnings),
 			FailureClass:    failureClass,
 			FreshnessHint:   freshnessHint(emit.commitSHA, a.version, outcome.VulnDBLastModified, a.toolchain),
 			TrustedDeletion: true,
-			Figures: map[string]int64{
-				"modules_total":      int64(modulesTotal),
-				"modules_analyzed":   int64(outcome.ModulesAnalyzed),
-				"requirements_total": int64(read.requirements),
-				"warnings_total":     int64(len(warnings)),
-				"invalid_paths":      int64(read.invalidPaths),
-				"stale_workspaces":   int64(staleRemoved),
-			},
+			Figures:         figures,
+			Labels:          outcome.Labels,
 		},
 	}, nil
 }
 
 // selfCheck proves the snapshot rule from the counts: every module is either parsed or
-// named as unread, and every eligible module was analyzed or failed. This exact check
-// stands in for the store's size-ratio guard, which the attestation bypasses. A
-// violation never commits.
+// named as unread, and every eligible module was analyzed, failed, or skipped by the
+// module budget. This exact check stands in for the store's size-ratio guard, which
+// the attestation bypasses. A violation never commits.
 func (a *Analyzer) selfCheck(modulesTotal int, read moduleRead, outcome StageOutcome) error {
+	moduleFailures := 0
+	for _, failed := range outcome.Failed {
+		if failed.RelativePath != "" {
+			moduleFailures++
+		}
+	}
 	balanced := modulesTotal == read.parsed+read.unread
-	if a.stage != nil && len(read.eligible) != outcome.ModulesAnalyzed+len(outcome.Failed) {
+	if a.stage != nil && len(read.eligible) != outcome.ModulesAnalyzed+moduleFailures+outcome.ModulesSkipped {
 		balanced = false
 	}
 	if balanced {

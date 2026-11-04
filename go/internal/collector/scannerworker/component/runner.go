@@ -163,7 +163,7 @@ func (r Runner) Run(ctx context.Context) error {
 		if errors.Is(err, errBadTargetConfig) {
 			class = "component_bad_config"
 		}
-		r.log(analyzer, observedAt, "terminal", 0, 0, 0, class)
+		r.logRecord(analyzer, observedAt, "terminal", 0, 0, 0, class, buildFailureReason(err), nil, nil)
 		return r.emitTerminal(req.Claim, observedAt, class)
 	}
 	if r.analyzer != nil {
@@ -245,7 +245,11 @@ func (r Runner) Run(ctx context.Context) error {
 	if _, err := io.Copy(r.Stdout, bytes.NewReader(raw)); err != nil {
 		return fmt.Errorf("write component result: %w", err)
 	}
-	r.logRecord(analyzer, observedAt, frame.state, index, len(wireFacts), len(output.Facts), string(frame.status.FailureClass), "", frame.figures)
+	var labels map[string]string
+	if result.Completion != nil {
+		labels = result.Completion.Labels
+	}
+	r.logRecord(analyzer, observedAt, frame.state, index, len(wireFacts), len(output.Facts), frame.status.FailureClass, "", frame.figures, labels)
 	return nil
 }
 

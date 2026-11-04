@@ -145,6 +145,7 @@ func TestSelfCheckRefusesCountsThatDoNotAddUp(t *testing.T) {
 		"module lost":    {},
 		"counted twice":  {ModulesAnalyzed: 2},
 		"failed and run": {ModulesAnalyzed: 1, Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}}},
+		"skipped too":    {ModulesAnalyzed: 1, ModulesSkipped: 1},
 	} {
 		stage := &recordingStage{t: t, outcome: outcome}
 		analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage })
@@ -154,22 +155,9 @@ func TestSelfCheckRefusesCountsThatDoNotAddUp(t *testing.T) {
 			t.Errorf("%s: facts = %d, want none", name, len(result.Output.Facts))
 		}
 	}
-}
-
-// TestSelfCheckRefusesAModuleTheReadLost seeds the first balance directly, because no
-// tree reaches it: a go.mod in the manifest that the read neither parsed nor named.
-func TestSelfCheckRefusesAModuleTheReadLost(t *testing.T) {
-	t.Parallel()
-
-	analyzer := &Analyzer{}
-	if err := analyzer.selfCheck(1, moduleRead{}, StageOutcome{}); err == nil {
-		t.Fatal("selfCheck(lost module) error = nil")
-	} else {
-		wantFailure(t, err, scannerworker.FailureClassSelfCheckFailed, false)
-	}
-	if err := analyzer.selfCheck(2, moduleRead{parsed: 1, unread: 1}, StageOutcome{}); err != nil {
-		t.Fatalf("selfCheck(balanced) error = %v", err)
-	}
+	// A whole-repository failure is not a module, so it does not balance one.
+	balanced := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1, Failed: []ModuleFailure{{Reason: warningModuleBudgetExceeded, Class: scannerworker.FailureClassAnalysisFailed}}}}
+	analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = balanced }))
 }
 
 // TestSelfCheckCountsUnreadModules proves the first balance over a real tree: each
@@ -186,6 +174,22 @@ func TestSelfCheckCountsUnreadModules(t *testing.T) {
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
 	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 3 {
 		t.Fatalf("completion = %+v", c)
+	}
+}
+
+// TestSelfCheckRefusesAModuleTheReadLost seeds the first balance directly, because no
+// tree reaches it: a go.mod in the manifest that the read neither parsed nor named.
+func TestSelfCheckRefusesAModuleTheReadLost(t *testing.T) {
+	t.Parallel()
+
+	analyzer := &Analyzer{}
+	if err := analyzer.selfCheck(1, moduleRead{}, StageOutcome{}); err == nil {
+		t.Fatal("selfCheck(lost module) error = nil")
+	} else {
+		wantFailure(t, err, scannerworker.FailureClassSelfCheckFailed, false)
+	}
+	if err := analyzer.selfCheck(2, moduleRead{parsed: 1, unread: 1}, StageOutcome{}); err != nil {
+		t.Fatalf("selfCheck(balanced) error = %v", err)
 	}
 }
 

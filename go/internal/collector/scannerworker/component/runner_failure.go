@@ -11,6 +11,7 @@ import (
 	sdkcollector "github.com/eshu-hq/eshu-sdk/collector"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 )
 
 // defaultRetryAfterSeconds paces retries after a retryable analyzer
@@ -71,7 +72,7 @@ func (r Runner) emitFailure(claim sdkcollector.Claim, observedAt time.Time, err 
 // clock of this call, so an operator can confirm from stderr alone that every
 // page of one claim shares one observed_at.
 func (r Runner) log(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class string) {
-	r.logRecord(analyzer, observedAt, state, page, facts, total, class, "", nil)
+	r.logRecord(analyzer, observedAt, state, page, facts, total, class, "", nil, nil)
 }
 
 // logFailure writes the stderr line for an analysis error. When the error
@@ -95,10 +96,24 @@ func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.
 	if analyzer == scannerworker.AnalyzerGoReachability {
 		figures = map[string]int64{"latency_ms": int64(latencyMS)}
 	}
-	r.logRecord(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err), reason, figures)
+	r.logRecord(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err), reason, figures, nil)
 }
 
-func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class, reason string, figures map[string]int64) {
+// buildFailureReason narrows a go_reachability build failure on the stderr record.
+// Both reasons are bad seeds or activations an operator repairs, and neither
+// claim can show which from its class alone.
+func buildFailureReason(err error) string {
+	switch {
+	case errors.Is(err, goreachability.ErrToolchainMissing):
+		return "toolchain_missing"
+	case errors.Is(err, goreachability.ErrEnvRefused):
+		return "env_refused"
+	default:
+		return ""
+	}
+}
+
+func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class, reason string, figures map[string]int64, labels map[string]string) {
 	if r.Stderr == nil {
 		return
 	}
@@ -119,6 +134,9 @@ func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.T
 		record["failure_reason"] = reason
 	}
 	for key, value := range figures {
+		record[key] = value
+	}
+	for key, value := range labels {
 		record[key] = value
 	}
 	raw, err := json.Marshal(record)
