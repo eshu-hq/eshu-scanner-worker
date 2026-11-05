@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -224,10 +225,22 @@ func gitShim(t *testing.T, override string) (string, string) {
 	log := filepath.Join(dir, "calls.log")
 	shim := filepath.Join(dir, "git-shim")
 	script := "#!/bin/sh\n{ printf 'ARGV %s\\n' \"$*\"; env | sed 's/^/ENV /'; } >> " + log + "\n" + override + "\nexec " + realGit + " \"$@\"\n"
-	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil { // #nosec G306 -- the shim must be executable
-		t.Fatalf("WriteFile(shim): %v", err)
-	}
+	writeExecutable(t, shim, script)
 	return shim, log
+}
+
+// writeExecutable writes a script a parallel test may run at once. A fork in
+// another test can inherit the open write descriptor until its exec, and running
+// the script in that window fails with "text file busy", so the write holds off
+// forks (go.dev/issue/22315).
+func writeExecutable(t *testing.T, path, body string) {
+	t.Helper()
+
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- the script must be executable
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
 }
 
 func readLog(t *testing.T, path string) string {
