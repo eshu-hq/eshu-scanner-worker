@@ -109,8 +109,9 @@ func (c emitContext) evidenceFact(module goModule, item requirement) facts.Envel
 // writes. A blank relative path covers the whole repository, so the key is left out.
 // The key names the go.mod file, not a dependency, because a scan is keyed by the file.
 //
-// repository_id and relative_path are written as JSON keys: the pinned factschema has
-// no typed field for them, and its schema admits unknown keys.
+// factschema types repository_id and relative_path as the warning join keys. A path
+// the escape rewrote is not byte-equal to evidence rows, so it does not join: that
+// module then has no reachability evidence, and never reads not_called.
 func (c emitContext) warningFact(reason, relativePath string) facts.Envelope {
 	key := facts.StableID(facts.ScannerWorkerWarningFactKind, map[string]any{
 		"analyzer":      warningAnalyzer,

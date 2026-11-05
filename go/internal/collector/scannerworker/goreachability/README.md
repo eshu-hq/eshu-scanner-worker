@@ -48,8 +48,10 @@ Warnings are `scanner_worker.warning` facts with `analyzer: go_reachability`, th
 in `reason`, and `warning_class` always `scanner_worker_warning`. `relative_path` is the
 go.mod file path, byte-equal to that file's evidence rows, and is absent for a
 whole-repository warning. The stable key is `(analyzer, repository_id, relative_path,
-reason)`. `repository_id` and `relative_path` are written as JSON keys until this module pins
-factschema `v0.1.0-rc.17`, which types them.
+reason)`. factschema `v0.1.0-rc.17` types `repository_id` and `relative_path`. One edge is not
+byte-equal: a valid path holding `%` whose `go.mod` declares invalid text gets an escaped
+`go_mod_invalid_path` warning path, so it does not join its evidence rows. That module then
+has no reachability evidence, and never reads `not_called`.
 
 | Reason | Meaning |
 | --- | --- |

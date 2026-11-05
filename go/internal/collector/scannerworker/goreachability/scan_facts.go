@@ -16,9 +16,9 @@ import (
 // comes from the claim and the key names no trace position, so a retry or a
 // reordered stream keeps one fact per (repository, advisory, module, go.mod).
 //
-// scan_level through trace_count are written as JSON keys: they merged to the SDK
-// in eshu-sdk bf6de325ba, and the factschema this module pins predates them. The
-// schema admits unknown keys, so a typed reader sees them once the release lands.
+// scan_level through trace_count are the provenance factschema types, which say how
+// much a not_called answer is worth. relative_path is not in that schema; it is an
+// extra key the schema admits, and it is what keeps one fact per go.mod.
 func (s StageInput) reachabilityFact(module Module, config *scanConfig, finding foldedFinding) facts.Envelope {
 	key := facts.StableID(chain.VulnerabilityGoCallReachabilityFactKind, map[string]any{
 		"repository_id":  s.RepositoryID,

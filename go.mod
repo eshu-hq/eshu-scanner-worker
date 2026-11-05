@@ -4,7 +4,7 @@ go 1.26.10
 
 require (
 	github.com/eshu-hq/eshu-sdk/collector v0.2.0-rc.3
-	github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.13
+	github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.17
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/knqyf263/go-rpmdb v0.1.1
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8

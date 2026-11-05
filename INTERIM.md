@@ -104,9 +104,8 @@ Component lane, first slice (os_package_extraction):
   govulncheck per module and emits `vulnerability.go_call_reachability`. The image
   carries a trimmed GOROOT and a govulncheck pinned by go.sum, and `Seed` copies both
   to `<dest>/toolchain`. Failures are `scanner_worker.warning` with `reason`,
-  `repository_id`, and `relative_path`; those two keys are written untyped until this
-  module pins factschema `v0.1.0-rc.17`, which types them. Provenance keys on the reachability fact wait the same
-  way. Every committed generation is a full snapshot of one commit and attests
+  `repository_id`, and `relative_path`, which factschema `v0.1.0-rc.17` types, along with
+  the provenance keys on the reachability fact. Every committed generation is a full snapshot of one commit and attests
   deletion; a unit it could not observe is named by a warning in that generation. A
   retryable class fails the whole claim once with no generation. See
   `goreachability/README.md` for the rule and the measured budgets.
