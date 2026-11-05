@@ -52,12 +52,15 @@ const (
 	// goModNotRegular is a symlink or a gitlink. The go command follows a link, so
 	// the entry is a module this analyzer cannot attest, and it is never read.
 	goModNotRegular
-	// goModInvalidPath has a path that must not reach a fact as identity.
+	// goModInvalidPath has a path that must not reach a fact as identity, or a path
+	// a hand-built tree names twice, which would give two facts one stable key.
 	goModInvalidPath
 )
 
 // goModEntry is one go.mod the verified tree holds.
 type goModEntry struct {
+	// rawPath is the path as the tree holds it. It never reaches a fact.
+	rawPath string
 	// relativePath is the path for facts. An invalid path carries its injective
 	// escape, so two hostile names can never share a key.
 	relativePath string
@@ -151,8 +154,26 @@ func parseTree(stream io.Reader, limits scannerworker.ResourceLimits) (treeManif
 			return treeManifest{}, fileLimitFailure()
 		}
 	}
-	slices.SortFunc(manifest.goMods, func(a, b goModEntry) int { return cmp.Compare(a.relativePath, b.relativePath) })
+	slices.SortFunc(manifest.goMods, func(a, b goModEntry) int {
+		return cmp.Or(cmp.Compare(a.relativePath, b.relativePath), cmp.Compare(a.rawPath, b.rawPath))
+	})
+	manifest.goMods = refuseRepeatedPaths(manifest.goMods)
 	return manifest, nil
+}
+
+// refuseRepeatedPaths leaves one invalid entry for a path a hand-built tree repeats.
+// Neither blob can speak for the path, and git itself could check out only one.
+func refuseRepeatedPaths(sorted []goModEntry) []goModEntry {
+	kept := sorted[:0]
+	for _, entry := range sorted {
+		if len(kept) > 0 && kept[len(kept)-1].rawPath == entry.rawPath {
+			kept[len(kept)-1].state = goModInvalidPath
+			kept[len(kept)-1].relativePath = escapePath(entry.rawPath)
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }
 
 // parseTreeRecord splits "<mode> <type> <object> <size>\t<path>". The size column
@@ -192,7 +213,7 @@ func isModuleFile(rawPath string) bool {
 // classifyGoMod decides what may happen to one go.mod entry. A bad path wins, since
 // that entry's path cannot reach a fact whatever its mode.
 func classifyGoMod(mode, object string, size int64, rawPath string) goModEntry {
-	entry := goModEntry{relativePath: rawPath, object: object, size: size}
+	entry := goModEntry{rawPath: rawPath, relativePath: rawPath, object: object, size: size}
 	switch {
 	case !isSafeRelativePath(rawPath):
 		entry.relativePath = escapePath(rawPath)

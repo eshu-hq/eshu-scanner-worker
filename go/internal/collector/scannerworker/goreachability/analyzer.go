@@ -231,7 +231,9 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		}
 		if module.invalidPaths > 0 {
 			read.invalidPaths += module.invalidPaths
-			warn(warningGoModInvalidPath, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
+			// Escaped like every invalid-path warning, so this valid path cannot share a
+			// key with another path's escape.
+			warn(warningGoModInvalidPath, scannerworker.FailureClassAnalysisFailed, escapePath(entry.relativePath))
 		}
 		if len(read.facts)+len(read.warnings)+len(module.requirements) > maxFacts {
 			return moduleRead{}, factLimitFailure()

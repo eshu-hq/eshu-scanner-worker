@@ -387,6 +387,56 @@ func TestCraftedTreePathsAreClassifiedWithoutTouchingDisk(t *testing.T) {
 	}
 }
 
+// TestDuplicateTreeEntriesCannotShareAKey covers a hand-built tree naming go.mod
+// twice with different content. Two facts would share a stable key and the host would
+// keep one silently, so the path is unusable and the result stays untrusted.
+func TestDuplicateTreeEntriesCannotShareAKey(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	fixtureGit(t, root, "init", "--quiet", "--initial-branch=main")
+	first := fixtureGitInput(t, root, goModV1, "hash-object", "-w", "--stdin")
+	second := fixtureGitInput(t, root, goModV2, "hash-object", "-w", "--stdin")
+	tree := fixtureGitInput(t, root, "100644 blob "+first+"\tgo.mod\n100644 blob "+second+"\tgo.mod\n", "mktree")
+	commit := fixtureGit(t, root, "commit-tree", tree, "-m", "fixture")
+	fixtureGit(t, root, "update-ref", "refs/heads/main", commit)
+	result := analyze(t, fixtureAnalyzer(t, "file://"+root, commit, nil))
+	if got := warningsOf(result.Output); !slices.Equal(got, []string{"go_mod_invalid_path go.mod"}) {
+		t.Fatalf("warnings = %v", got)
+	}
+	if got := evidenceOf(result.Output); len(got) != 0 {
+		t.Fatalf("evidence = %v", got)
+	}
+	if c := result.Completion; !c.Partial || c.TrustedDeletion {
+		t.Fatalf("completion = %+v", c)
+	}
+}
+
+// TestInvalidPathWarningsCannotCollide covers a valid directory literally named like
+// another's escape, with a bad require. Each warning needs its own key.
+func TestInvalidPathWarningsCannotCollide(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	fixtureGit(t, root, "init", "--quiet", "--initial-branch=main")
+	bad := "module m.test/a\n\nrequire ../x v1.0.0\n"
+	for _, dir := range []string{"a\xff", "a%FF"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o750); err != nil {
+			t.Skipf("this filesystem refuses the name %q: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "go.mod"), []byte(bad), 0o600); err != nil {
+			t.Skipf("this filesystem refuses the name %q: %v", dir, err)
+		}
+	}
+	fixtureGit(t, root, "add", "--all")
+	fixtureGit(t, root, "commit", "--quiet", "--message", "fixture")
+	result := analyze(t, fixtureAnalyzer(t, "file://"+root, fixtureGit(t, root, "rev-parse", "HEAD"), nil))
+	want := []string{"go_mod_invalid_path a%25FF/go.mod", "go_mod_invalid_path a%FF/go.mod"}
+	if got := warningsOf(result.Output); !slices.Equal(got, want) {
+		t.Fatalf("warnings = %v, want %v", got, want)
+	}
+}
+
 // TestTheCredentialIsNeverInTheCheckoutEnvironmentOfOtherCalls keeps the
 // env-only claim honest for the two calls added by the budget work.
 func TestTheCredentialIsNeverInTheCheckoutEnvironmentOfOtherCalls(t *testing.T) {
