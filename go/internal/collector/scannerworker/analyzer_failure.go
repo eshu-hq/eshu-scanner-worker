@@ -38,6 +38,9 @@ type Completion struct {
 	// Figures are numeric counts for the stderr record. They hold numbers
 	// only, so no path, URL, or repository value can reach the log.
 	Figures map[string]int64
+	// Labels are bounded strings for the stderr record, such as a pinned tool
+	// version. A caller must never put a path, URL, or repository value here.
+	Labels map[string]string
 }
 
 // Analyzer executes one bounded scanner-worker claim.
@@ -48,11 +51,12 @@ type Analyzer interface {
 // AnalyzerFailure is a bounded analyzer failure suitable for workflow retry or
 // dead-letter handling.
 type AnalyzerFailure struct {
-	class     FailureClass
-	retryable bool
-	usage     ResourceUsage
-	detail    *InputLimitDetail
-	reason    string
+	class             FailureClass
+	retryable         bool
+	usage             ResourceUsage
+	detail            *InputLimitDetail
+	reason            string
+	retryAfterSeconds int
 }
 
 // InputLimitDetail carries the byte figures behind an input_limit_exceeded
@@ -117,6 +121,20 @@ func (f AnalyzerFailure) WithReason(reason string) AnalyzerFailure {
 // Reason returns the bounded reason token, or empty when none was set.
 func (f AnalyzerFailure) Reason() string {
 	return f.reason
+}
+
+// WithRetryAfterSeconds returns the failure asking the host to wait this many
+// seconds before the next attempt. The delay is policy for the failure's
+// class, set only from constants: it never derives from an error or input.
+func (f AnalyzerFailure) WithRetryAfterSeconds(seconds int) AnalyzerFailure {
+	f.retryAfterSeconds = seconds
+	return f
+}
+
+// RetryAfterSeconds returns the requested retry delay, or zero when the
+// failure carries none and the runner's default applies.
+func (f AnalyzerFailure) RetryAfterSeconds() int {
+	return f.retryAfterSeconds
 }
 
 func (f AnalyzerFailure) Error() string {

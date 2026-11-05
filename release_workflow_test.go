@@ -149,3 +149,51 @@ func TestDockerfileStagesMatchChartSeedCommand(t *testing.T) {
 		t.Error("Dockerfile must build static binaries (CGO_ENABLED=0)")
 	}
 }
+
+// TestDockerfileCarriesThePinnedToolchain pins the go-reachability stage: one
+// toolchain from the digest-pinned GO_IMAGE with no RUN, so the multi-platform
+// build needs no emulation, a scanner built from go.sum rather than installed from
+// a floating version, and the GOROOT trimmed of what go list does not read.
+func TestDockerfileCarriesThePinnedToolchain(t *testing.T) {
+	t.Parallel()
+
+	text := readFile(t, "Dockerfile")
+	start := strings.Index(text, "AS toolchain\n")
+	stage := strings.Index(text, "AS scanner-go-reachability\n")
+	if start < 0 || stage < 0 {
+		t.Fatal("Dockerfile lost the toolchain or scanner-go-reachability stage")
+	}
+	for _, want := range []string{
+		"FROM --platform=$TARGETPLATFORM ${GO_IMAGE} AS toolchain\n",
+		"-o /out/govulncheck golang.org/x/vuln/cmd/govulncheck",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("Dockerfile lost %q", want)
+		}
+	}
+	if regexp.MustCompile(`govulncheck@|go install`).MatchString(text) {
+		t.Error("the scanner must come from go.sum, never go install or a version suffix")
+	}
+	body := text[stage:]
+	if strings.Contains(body, "\nRUN ") {
+		t.Error("the final stage must have no RUN: it has no shell and no emulation")
+	}
+	for _, want := range []string{"VERSION", "go.env", "bin", "src", "pkg", "lib"} {
+		line := "COPY --from=toolchain /usr/local/go/" + want + " /usr/local/go/" + want + "\n"
+		if !strings.Contains(body, line) {
+			t.Errorf("stage lost %q", line)
+		}
+	}
+	for _, trimmed := range []string{"/usr/local/go/test", "/usr/local/go/api", "/usr/local/go/doc", "/usr/local/go/misc", "COPY --from=toolchain /usr/local/go /"} {
+		if strings.Contains(body, trimmed) {
+			t.Errorf("stage must not copy %q", trimmed)
+		}
+	}
+	if !strings.Contains(body, "COPY --from=build /out/govulncheck /usr/local/bin/govulncheck\n") {
+		t.Error("stage lost the scanner")
+	}
+	goMod := readFile(t, "go.mod")
+	if !strings.Contains(goMod, "tool golang.org/x/vuln/cmd/govulncheck") {
+		t.Error("go.mod lost the tool directive that pins the scanner in go.sum")
+	}
+}

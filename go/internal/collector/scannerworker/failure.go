@@ -60,6 +60,16 @@ const (
 	// FailureClassAnalysisFailed covers a module the analyzer could not read
 	// at this commit, such as a malformed go.mod.
 	FailureClassAnalysisFailed FailureClass = "analysis_failed"
+	// FailureClassAnalysisTimeout covers a module scan that did not finish in its
+	// budget.
+	FailureClassAnalysisTimeout FailureClass = "analysis_timeout"
+	// FailureClassModuleDownloadFailed covers a module the go command could not
+	// fetch. A transient failure retries on every attempt and never commits; a
+	// proxy 404 or 410 is terminal for that module.
+	FailureClassModuleDownloadFailed FailureClass = "module_download_failed"
+	// FailureClassVulnDBUnavailable covers an unreachable vulnerability database. It
+	// retries on every attempt and never commits a warned module.
+	FailureClassVulnDBUnavailable FailureClass = "vulndb_unavailable"
 	// FailureClassSelfCheckFailed covers a result whose module counts do not add up.
 	// It is terminal: such a result never commits.
 	FailureClassSelfCheckFailed FailureClass = "self_check_failed"
@@ -149,6 +159,9 @@ func (c FailureClass) validate() error {
 		FailureClassAuthDenied,
 		FailureClassToolchainUnsupported,
 		FailureClassAnalysisFailed,
+		FailureClassAnalysisTimeout,
+		FailureClassModuleDownloadFailed,
+		FailureClassVulnDBUnavailable,
 		FailureClassSelfCheckFailed:
 		return nil
 	default:

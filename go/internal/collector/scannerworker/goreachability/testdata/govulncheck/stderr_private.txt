@@ -1,0 +1,6 @@
+govulncheck: loading packages:
+There are errors with the provided package patterns:
+main.go:3:8: example.invalid/private@v1.0.0: reading https://proxy.golang.org/example.invalid/private/@v/v1.0.0.zip: 404 Not Found
+	server response: not found: example.invalid/private@v1.0.0: unrecognized import path "example.invalid/private": https fetch: Get "https://example.invalid/private?go-get=1": dial tcp: lookup example.invalid on 8.8.8.8:53: no such host
+main.go:3:10: could not import example.invalid/private (invalid package name: "")
+For details on package patterns, see https://pkg.go.dev/cmd/go#hdr-Package_lists_and_patterns.

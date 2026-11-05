@@ -21,9 +21,10 @@ for verification and version pairs.
 A fourth component is new rather than ported. `eshu.scanner.go-reachability`
 (#47, part of eshu-hq/eshu#10002) fetches a claimed repository at one commit with
 a host-minted installation token and emits `vulnerability.go_module_evidence`
-from each `go.mod`. It sends the token only to `github.com` unless the activation's
-`allowed_clone_hosts` names other hosts. It reports every module-bearing result as
-partial until the govulncheck stage (#48) lands. Core does not admit it yet.
+from each `go.mod`, then runs a pinned govulncheck per module and emits
+`vulnerability.go_call_reachability` (#48). It sends the token only to `github.com`
+unless the activation's `allowed_clone_hosts` names other hosts. Core does not admit
+it yet.
 
 ```sh
 make ci   # lint + test + race, same commands CI runs

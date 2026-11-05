@@ -2,7 +2,7 @@
 #
 # One pure-Go build stage compiles the four scanner-component binaries
 # (CGO_ENABLED=0: the RPM and SQLite readers are pure Go), reproducibly with
-# -trimpath and an empty build id. Each final stage carries exactly one
+# -trimpath and an empty build id. Each final stage carries one component
 # binary on a base with no shell and no package manager, at the path the
 # eshu chart's seed init container executes:
 #
@@ -34,6 +34,12 @@ RUN for name in image sbom osruntime go-reachability; do \
         -ldflags="-s -w -buildid= -X github.com/eshu-hq/eshu-scanner-worker/go/internal/buildinfo.Version=${SCANNER_VERSION}" \
         -o "/out/eshu-scanner-component-${name}" "./go/cmd/scanner-component-${name}" || exit 1; \
     done
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -buildvcs=false \
+      -ldflags="-s -w -buildid=" -o /out/govulncheck golang.org/x/vuln/cmd/govulncheck
+
+# The Go toolchain go-reachability seeds. It is for the target platform, and with
+# no RUN it needs no emulation.
+FROM --platform=$TARGETPLATFORM ${GO_IMAGE} AS toolchain
 
 FROM ${RUNTIME_IMAGE} AS scanner-image
 COPY --from=build /out/eshu-scanner-component-image /usr/local/bin/eshu-scanner-component-image
@@ -50,13 +56,19 @@ COPY --from=build /out/eshu-scanner-component-osruntime /usr/local/bin/eshu-scan
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/eshu-scanner-component-osruntime"]
 
-# go-reachability needs git at run time, and this image does not provide it. The
-# chart seed step copies only this binary out; the binary then runs in the Eshu
-# worker container, whose image installs git. Its pinned toolchain is the Go
-# version of GO_IMAGE above, compiled in, so this stage needs no toolchain to
-# compare go.mod directives. Stage B (#48) must settle where go and govulncheck
-# live: the seed contract delivers neither to the worker container today.
+# go-reachability also carries one Go toolchain and one govulncheck, both pinned:
+# the toolchain by GO_IMAGE, the scanner by go.sum through go.mod's tool directive.
+# The seed step copies them to DIR/toolchain beside the collector, which runs them
+# as its own children in the Eshu worker container and takes git from that image.
+# The GOROOT is trimmed of test, api, doc, and misc; go list needs src, pkg, and lib.
 FROM ${RUNTIME_IMAGE} AS scanner-go-reachability
 COPY --from=build /out/eshu-scanner-component-go-reachability /usr/local/bin/eshu-scanner-component-go-reachability
+COPY --from=build /out/govulncheck /usr/local/bin/govulncheck
+COPY --from=toolchain /usr/local/go/VERSION /usr/local/go/VERSION
+COPY --from=toolchain /usr/local/go/go.env /usr/local/go/go.env
+COPY --from=toolchain /usr/local/go/bin /usr/local/go/bin
+COPY --from=toolchain /usr/local/go/src /usr/local/go/src
+COPY --from=toolchain /usr/local/go/pkg /usr/local/go/pkg
+COPY --from=toolchain /usr/local/go/lib /usr/local/go/lib
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/eshu-scanner-component-go-reachability"]

@@ -13,8 +13,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 )
 
 const (
@@ -39,8 +42,32 @@ func smokeTokenStanza() map[string]any {
 	return map[string]any{"token": smokeToken, "scope_id": smokeScope}
 }
 
-// buildBinary builds the real binary once per test.
+// buildBinary builds the real binary once per test, with a stand-in toolchain beside
+// it as the seed step leaves one. The stand-in scanner fails, so a real fetch ends as
+// a partial result and no test here reaches the Go proxy.
 func buildBinary(t *testing.T) string {
+	t.Helper()
+
+	bin := buildUnseededBinary(t)
+	dir := filepath.Join(filepath.Dir(bin), goreachability.ToolchainDirName)
+	if err := os.MkdirAll(filepath.Join(dir, "go", "bin"), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go", "VERSION"), []byte(goreachability.PinnedToolchainVersion()+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	for _, name := range []string{"go/bin/go", "govulncheck"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { // #nosec G306 -- the stand-ins must be executable
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+	return bin
+}
+
+// buildUnseededBinary builds the real binary with nothing beside it.
+func buildUnseededBinary(t *testing.T) string {
 	t.Helper()
 
 	bin := filepath.Join(t.TempDir(), "scanner-component-go-reachability")
@@ -107,7 +134,10 @@ func baseEnv(extra ...string) []string {
 	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(name) {
-		case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "TMPDIR":
+		case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "TMPDIR",
+			"GOFLAGS", "GOTOOLCHAIN", "GOWORK", "GOVCS", "CGO_ENABLED", "GOENV", "GOROOT", "GOPATH",
+			"GOMODCACHE", "GOCACHE", "GOPRIVATE", "GONOPROXY", "GONOSUMDB", "GONOSUMCHECK", "GOINSECURE", "GOTELEMETRY",
+			"GOPROXY", "GOSUMDB", "GOVULNDB", "SSL_CERT_FILE":
 			return true
 		}
 		return false
@@ -134,6 +164,20 @@ func serve(t *testing.T, bin string, call smokeCall) (map[string]any, string, st
 		t.Fatalf("decode page: %v\n%s", err, stdout.String())
 	}
 	return page, stdout.String(), stderr.String()
+}
+
+// TestBinaryRefusesAClaimWithNoToolchain proves the seed contract on the production
+// path: with nothing beside the binary a claim is terminal before git runs, and the
+// stderr line names the reason.
+func TestBinaryRefusesAClaimWithNoToolchain(t *testing.T) {
+	bin := buildUnseededBinary(t)
+	page, _, log := serve(t, bin, smokeCall{
+		token: smokeTokenStanza(), cloneURL: "https://" + smokeHost + "/org/repo", hosts: []string{smokeHost},
+		env: []string{"TMPDIR=" + t.TempDir()},
+	})
+	if page["state"] != "terminal" || !strings.Contains(log, `"failure_reason":"toolchain_missing"`) {
+		t.Fatalf("state = %v, stderr = %q", page["state"], log)
+	}
 }
 
 // TestBinaryClassifiesClaimsOverStdio proves two no-network outcomes through a real

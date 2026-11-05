@@ -36,7 +36,8 @@ token reaches git only through the fetch process environment, as an
 `http.extraHeader` scoped to the clone URL's origin, so a token on a command
 line, in the checkout, in a log, or in a fact is a vulnerability. git runs with a
 clean environment, no system or global config, no hooks, redirects off, maintenance
-off, and the `https` transport alone. Repository content is parsed, never executed.
+off, and the `https` transport alone. Repository content is parsed and type-checked,
+never executed.
 
 The token goes only to a canonical remote on an allowed host. The default is
 `github.com`. An operator can replace that list with the activation's
@@ -69,6 +70,24 @@ it could not observe. A committer who can replace a `go.mod` with a link can als
 delete its `require` lines; the defense is the named warning in readiness, not a
 size-dependent guard. A claim commits nothing on a checkout, auth, or budget failure,
 or when its module counts do not add up.
+
+Its image also carries one Go toolchain and one govulncheck, which the seed step
+copies beside the collector. govulncheck runs as a child whose environment is built
+from nothing: `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, `GOFLAGS=-mod=mod`,
+`GOVCS=*:off`, and a `GOPROXY` with no `direct`, so a repository cannot pick a
+toolchain, reach a C compiler, or make the go command run a version-control tool.
+The token never reaches that child, and a token or host credential in its
+environment is a vulnerability. Operators may set only `GOPROXY`, `GOSUMDB`,
+`GOVULNDB`, `HTTPS_PROXY`, `NO_PROXY`, and `SSL_CERT_FILE`; a Go policy variable
+fails the claim.
+
+`GOFLAGS=-mod=mod` makes the go command write `go.sum`, and it writes through a link. A
+module whose `go.sum` is a link is therefore never scanned, so a repository cannot plant
+a file outside its checkout or break the module cache other repositories share.
+
+A module with a local `replace` that leaves the checkout, as written or through a link in
+the tree, is never scanned either, so a fact cannot report code outside the claimed commit
+as that commit's.
 
 ## Supply Chain
 
@@ -158,7 +177,7 @@ same release.
 | component manifest `0.1.0` (`component.Version`) | eshu core `compatibleCore: >=0.0.5 <0.2.0`, `scannercomponent.Version` `0.1.0` | `go/internal/collector/scannerworker/component/manifest.go`, `testdata/manifests` |
 | wire protocol `collector-sdk/v1alpha3` | eshu core extension host v1alpha3 pagination | `component.protocolVersion` (from eshu-sdk) |
 | `github.com/eshu-hq/eshu-sdk/collector` `v0.2.0-rc.3` | eshu core `go/go.mod` `v0.2.0-rc.3` | `go.mod` |
-| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.15` | `go.mod` |
+| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.17` | eshu core `go/go.mod` `v0.1.0-rc.15` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
 Note on the factschema row: this component pins `v0.1.0-rc.13` while core

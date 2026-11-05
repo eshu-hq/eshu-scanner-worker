@@ -140,6 +140,13 @@ func buildGoReachability(claim sdkcollector.Claim, config Config, options goreac
 	if len(config.allowedCloneHosts) > 0 {
 		options.AllowedCloneHosts = config.allowedCloneHosts
 	}
+	if options.Stage == nil && !options.StageAOnly {
+		stage, err := goreachability.DefaultStage(options)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errBadTargetConfig, err)
+		}
+		options.Stage = stage
+	}
 	analyzer, err := goreachability.NewAnalyzer(goreachability.Config{
 		CollectorInstanceID: claim.InstanceID,
 		Target:              config.derivedTarget,

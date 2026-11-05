@@ -268,3 +268,24 @@ func fixtureGitInput(t *testing.T, dir, input string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// hostGoRoot returns the GOROOT of the go binary on PATH, asked via
+// `go env GOROOT` so the test uses the toolchain that would actually run
+// rather than the root baked in at build time (runtime.GOROOT is deprecated).
+func hostGoRoot(t *testing.T) string {
+	t.Helper()
+
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("LookPath go: %v", err)
+	}
+	out, err := exec.Command(goBin, "env", "GOROOT").Output() // #nosec G204 -- the test's own toolchain, fixed arguments
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		t.Fatal("go env GOROOT returned empty output")
+	}
+	return root
+}

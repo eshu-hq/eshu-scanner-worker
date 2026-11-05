@@ -87,12 +87,8 @@ Component lane, first slice (os_package_extraction):
   the claimed commit, reads each `go.mod`, and emits
   `vulnerability.go_module_evidence`; `go/cmd/scanner-component-go-reachability`
   and the `scanner-go-reachability` image follow the other components. Every
-  module-bearing result stays partial until stage B (#48) wires the `Stage` seam, so
-  `eshu_dp_component_extension_results_total{state="partial"}` is 100 percent for
-  module-bearing claims until then. Every committed generation is the full snapshot of
-  one commit and attests deletion: a module it could not read is named by a
-  `scanner_worker.warning` in that generation, and its earlier evidence leaves truth. It
-  takes the repository id, commit, and clone URL from the host's
+  module-bearing result stays partial until stage B (#48) wires the
+  `Stage` seam. It takes the repository id, commit, and clone URL from the host's
   `host_derived_target` request key and the token from `host_github_app_token`,
   and refuses static targets. The token reaches only `github.com` unless the
   activation sets `allowed_clone_hosts`. Stage A writes no worktree: it reads each
@@ -103,8 +99,18 @@ Component lane, first slice (os_package_extraction):
   select a token installation for derived scopes, pin the image digest, and
   reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
   binary runs in the Eshu worker container after the seed copy, so it uses that
-  image's git; the seed contract delivers no Go toolchain or govulncheck there,
-  which stage B must settle.
+  image's git.
+- Go reachability, stage B (#48): `goreachability.ScanStage` runs the seeded
+  govulncheck per module and emits `vulnerability.go_call_reachability`. The image
+  carries a trimmed GOROOT and a govulncheck pinned by go.sum, and `Seed` copies both
+  to `<dest>/toolchain`. Failures are `scanner_worker.warning` with `reason`,
+  `repository_id`, and `relative_path`, which factschema `v0.1.0-rc.17` types, along with
+  the provenance keys on the reachability fact. Every committed generation is a full snapshot of one commit and attests
+  deletion; a unit it could not observe is named by a warning in that generation.
+  Retry is per class: a transient gap fails the whole claim with no generation on
+  every attempt until the host's budget ends it, a proxy 404/410 is terminal for its
+  module at once, and a timeout retries once. See
+  `goreachability/README.md` for the rule and the measured budgets.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

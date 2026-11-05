@@ -267,7 +267,7 @@ func TestHostileStringsNeverReachFacts(t *testing.T) {
 func TestRealImportPathsWithoutADotAreKept(t *testing.T) {
 	t.Parallel()
 
-	gomod := "module corp/app\n\nrequire (\n\tcorp/internal/lib v1.0.0\n\tgopkg.in/yaml.v3 v3.0.1\n\tm.test/a~b/v2 v2.0.0\n)\n\nreplace corp/internal/lib => ../lib\n"
+	gomod := "module corp/app\n\nrequire (\n\tcorp/internal/lib v1.0.0\n\tgopkg.in/yaml.v3 v3.0.1\n\tm.test/a~b/v2 v2.0.0\n)\n\nreplace corp/internal/lib => ./lib\n"
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": gomod})
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], nil))
 	if got := warningsOf(result.Output); len(got) != 0 {
@@ -296,7 +296,7 @@ func TestInvalidRootModulePathCostsTheWholeFile(t *testing.T) {
 func TestHostileReplacementTextIsRefused(t *testing.T) {
 	t.Parallel()
 
-	gomod := "module m.test/app\n\nrequire m.test/x v1.0.0\n\nreplace m.test/x => \"../a\\x1bb\"\n"
+	gomod := "module m.test/app\n\nrequire m.test/x v1.0.0\n\nreplace m.test/x => \"./a\\x1bb\"\n"
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": gomod})
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], nil))
 	if got := evidenceOf(result.Output); len(got) != 0 {

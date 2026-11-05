@@ -11,6 +11,8 @@ import (
 
 	"github.com/eshu-hq/eshu-sdk/collector/conformance"
 	"gopkg.in/yaml.v3"
+
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 )
 
 // seedCollectorName is the runtime file the reconcile loop executes:
@@ -49,7 +51,17 @@ const seedImageRepoPrefix = imageRepositoryPrefix
 // text names the flag or defect, never the value: image references and
 // paths stay out of errors, logs, and statuses per the package privacy
 // rule.
+//
+// For go_reachability, Seed also copies the image's Go toolchain and govulncheck
+// to <dest>/toolchain, because the collector runs in the Eshu worker container,
+// which has neither. Admission reads only the manifest and the collector, so the
+// toolchain inherits their trust: same digest-pinned image, same seed step.
 func Seed(componentID string, args []string) error {
+	return seed(componentID, args, imageToolchainSource)
+}
+
+// seed is Seed with the toolchain location as a parameter, for tests.
+func seed(componentID string, args []string, source toolchainSource) error {
 	kind, err := AnalyzerFor(componentID)
 	if err != nil {
 		return err
@@ -73,7 +85,19 @@ func Seed(componentID string, args []string) error {
 	if err != nil {
 		return errors.New("seed: resolve the running executable")
 	}
-	return writeSeed(dest, manifest, executable)
+	withToolchain := componentID == IDGoReachability
+	if withToolchain {
+		if err := source.verify(); err != nil {
+			return err
+		}
+	}
+	if err := writeSeed(dest, manifest, executable); err != nil {
+		return err
+	}
+	if withToolchain {
+		return source.copyTo(filepath.Join(dest, goreachability.ToolchainDirName))
+	}
+	return nil
 }
 
 // validateSeedImageRef enforces the fail-closed --image-ref shape for one

@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/buildinfo"
@@ -28,12 +30,16 @@ type Options struct {
 	// Toolchain overrides the pinned toolchain. Empty means the toolchain that
 	// built this binary, which the image build pins.
 	Toolchain string
-	// ScannerVersion overrides the version in the freshness hint.
+	// ScannerVersion overrides the component version in the freshness hint.
 	ScannerVersion string
+	// GovulncheckVersion overrides the scanner version in the freshness hint. Empty
+	// means the version this build pins.
+	GovulncheckVersion string
 	// TempRoot overrides where checkouts live. Empty means the system temp dir.
 	TempRoot string
 	// Stage is the reachability analysis after module evidence. Nil means Stage A
-	// alone, whose module-bearing results are always partial.
+	// alone, whose module-bearing results are always partial. Production
+	// wires DefaultStage.
 	Stage Stage
 	// AllowedCloneHosts is the operator's allowed_clone_hosts. Empty means
 	// github.com alone. It replaces the default rather than adding to it.
@@ -42,6 +48,14 @@ type Options struct {
 	// binary and GitGuardCommand. Empty runs the fetch directly, which the component
 	// entrypoint never does, because a killed component would then orphan git.
 	GitGuard []string
+	// StageAOnly keeps Stage nil where DefaultStage would otherwise run. Test seam
+	// only: it lets a test exercise the checkout without a seeded toolchain.
+	StageAOnly bool
+	// ToolchainDir overrides where DefaultStage looks for the seeded toolchain.
+	ToolchainDir string
+	// Lookup overrides how DefaultStage reads operator environment variables. Nil
+	// reads the process environment.
+	Lookup func(string) (string, bool)
 }
 
 // Config builds an Analyzer.
@@ -64,8 +78,10 @@ type Analyzer struct {
 	git        gitRunner
 	toolchain  string
 	version    string
-	tempRoot   string
-	stage      Stage
+	// govulncheckVersion is the scanner version in the freshness hint.
+	govulncheckVersion string
+	tempRoot           string
+	stage              Stage
 }
 
 // NewAnalyzer validates the target and builds the analyzer. A credential defect
@@ -90,14 +106,15 @@ func NewAnalyzer(config Config) (*Analyzer, error) {
 		return nil, fmt.Errorf("go reachability target: %w", err)
 	}
 	analyzer := &Analyzer{
-		instanceID: config.CollectorInstanceID,
-		target:     target,
-		token:      config.Token,
-		git:        gitRunner{path: config.Options.GitPath, schemes: schemes, guard: config.Options.GitGuard},
-		toolchain:  config.Options.Toolchain,
-		version:    config.Options.ScannerVersion,
-		tempRoot:   config.Options.TempRoot,
-		stage:      config.Options.Stage,
+		instanceID:         config.CollectorInstanceID,
+		target:             target,
+		token:              config.Token,
+		git:                gitRunner{path: config.Options.GitPath, schemes: schemes, guard: config.Options.GitGuard},
+		toolchain:          config.Options.Toolchain,
+		version:            config.Options.ScannerVersion,
+		govulncheckVersion: config.Options.GovulncheckVersion,
+		tempRoot:           config.Options.TempRoot,
+		stage:              config.Options.Stage,
 	}
 	if analyzer.git.path == "" {
 		analyzer.git.path = "git"
@@ -107,6 +124,9 @@ func NewAnalyzer(config Config) (*Analyzer, error) {
 	}
 	if analyzer.version == "" {
 		analyzer.version = buildinfo.AppVersion()
+	}
+	if analyzer.govulncheckVersion == "" {
+		analyzer.govulncheckVersion = GovulncheckVersion
 	}
 	return analyzer, nil
 }
@@ -168,10 +188,12 @@ func (a *Analyzer) runStage(ctx context.Context, git gitRunner, emit emitContext
 	}
 	return a.stage.Run(ctx, StageInput{
 		Claim:           emit.input,
+		InstanceID:      emit.instanceID,
 		RepositoryID:    emit.repositoryID,
 		SourceCommitSHA: emit.commitSHA,
 		SourceURI:       emit.sourceURI,
 		CheckoutDir:     checkoutDir,
+		ScratchDir:      filepath.Dir(checkoutDir),
 		Modules:         eligible,
 	})
 }
@@ -243,6 +265,12 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 			// key with another path's escape.
 			warn(warningGoModInvalidPath, scannerworker.FailureClassAnalysisFailed, escapePath(entry.relativePath))
 		}
+		if entry.sumNotRegular {
+			warn(warningGoSumNotRegular, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
+		}
+		if module.replaceOutside {
+			warn(warningReplaceOutsideCheckout, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
+		}
 		if len(read.facts)+len(read.warnings)+len(module.requirements) > maxFacts {
 			return moduleRead{}, factLimitFailure()
 		}
@@ -251,8 +279,8 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		}
 		read.parsed++
 		read.requirements += len(module.requirements)
-		if !unsupported && module.invalidPaths == 0 {
-			read.eligible = append(read.eligible, Module{RelativePath: module.relativePath, Dir: module.dir, ModulePath: module.modulePath})
+		if !unsupported && module.invalidPaths == 0 && !entry.sumNotRegular && !module.replaceOutside {
+			read.eligible = append(read.eligible, Module{RelativePath: module.relativePath, Dir: module.dir, ModulePath: module.modulePath, LocalReplaces: module.localReplaces})
 		}
 	}
 	return read, nil
@@ -262,11 +290,11 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 // the full snapshot of one commit: a unit the component could not observe is named by
 // a warning in the same generation, so the omission is never silent and the component
 // attests TrustedDeletion on every commit. A module with an unusable go.mod, or whose
-// stage run failed, leaves its earlier evidence behind with the prior generation and
-// reads as missing evidence, because that evidence described another commit. Partial
-// is telemetry and readiness only; it never decides supersession. What cannot meet
-// this rule never commits: a stage returns a retryable class as an error, and a count
-// that does not add up fails terminal here.
+// stage run failed, leaves its earlier evidence and reachability behind with the prior
+// generation and reads as missing evidence, because they described another commit or
+// database. Partial is telemetry and readiness only; it never decides supersession.
+// What cannot meet this rule never commits: a retryable class fails the whole claim in
+// the stage, and a count that does not add up fails terminal here.
 func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, outcome StageOutcome, maxFacts, staleRemoved int) (scannerworker.AnalyzerResult, error) {
 	if err := a.selfCheck(modulesTotal, read, outcome); err != nil {
 		return scannerworker.AnalyzerResult{}, err
@@ -292,34 +320,51 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 	if len(output) > maxFacts {
 		return scannerworker.AnalyzerResult{}, factLimitFailure()
 	}
+	figures := map[string]int64{
+		"attempt":            int64(emit.input.Attempt),
+		"modules_total":      int64(modulesTotal),
+		"modules_analyzed":   int64(outcome.ModulesAnalyzed),
+		"requirements_total": int64(read.requirements),
+		"warnings_total":     int64(len(warnings)),
+		"invalid_paths":      int64(read.invalidPaths),
+		"stale_workspaces":   int64(staleRemoved),
+	}
+	maps.Copy(figures, outcome.Figures)
 	partial := modulesTotal > 0 && (a.stage == nil || omitted)
+	inputs := freshnessInputs{
+		commit:             emit.commitSHA,
+		componentVersion:   a.version,
+		govulncheckVersion: a.govulncheckVersion,
+		toolchain:          a.toolchain,
+		vulnDBLastModified: outcome.VulnDBLastModified,
+	}
 	return scannerworker.AnalyzerResult{
 		Output: scannerworker.FactOutput{TargetCount: 1, ResultCount: len(output), Facts: output},
 		Completion: &scannerworker.Completion{
 			Partial:         partial,
 			WarningCount:    len(warnings),
 			FailureClass:    failureClass,
-			FreshnessHint:   freshnessHint(emit.commitSHA, a.version, outcome.VulnDBLastModified, a.toolchain),
+			FreshnessHint:   freshnessHint(inputs, partialOutcome(partial, warnings)),
 			TrustedDeletion: true,
-			Figures: map[string]int64{
-				"modules_total":      int64(modulesTotal),
-				"modules_analyzed":   int64(outcome.ModulesAnalyzed),
-				"requirements_total": int64(read.requirements),
-				"warnings_total":     int64(len(warnings)),
-				"invalid_paths":      int64(read.invalidPaths),
-				"stale_workspaces":   int64(staleRemoved),
-			},
+			Figures:         figures,
+			Labels:          outcome.Labels,
 		},
 	}, nil
 }
 
 // selfCheck proves the snapshot rule from the counts: every module is either parsed or
-// named as unread, and every eligible module was analyzed or failed. This exact check
-// stands in for the store's size-ratio guard, which the attestation bypasses. A
-// violation never commits.
+// named as unread, and every eligible module was analyzed, failed, or skipped by the
+// module budget. This exact check stands in for the store's size-ratio guard, which
+// the attestation bypasses. A violation never commits.
 func (a *Analyzer) selfCheck(modulesTotal int, read moduleRead, outcome StageOutcome) error {
+	moduleFailures := 0
+	for _, failed := range outcome.Failed {
+		if failed.RelativePath != "" {
+			moduleFailures++
+		}
+	}
 	balanced := modulesTotal == read.parsed+read.unread
-	if a.stage != nil && len(read.eligible) != outcome.ModulesAnalyzed+len(outcome.Failed) {
+	if a.stage != nil && len(read.eligible) != outcome.ModulesAnalyzed+moduleFailures+outcome.ModulesSkipped {
 		balanced = false
 	}
 	if balanced {
@@ -328,9 +373,42 @@ func (a *Analyzer) selfCheck(modulesTotal int, read moduleRead, outcome StageOut
 	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassSelfCheckFailed, scannerworker.ResourceUsage{}, nil)
 }
 
-// freshnessHint hashes the ruled tuple, so an unchanged tuple is a host-side
-// duplicate and any change re-analyzes.
-func freshnessHint(commit, scannerVersion, vulnDBLastModified, toolchain string) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{commit, scannerVersion, vulnDBLastModified, toolchain}, "|")))
+// freshnessInputs is everything that can change what one commit's scan reports.
+type freshnessInputs struct {
+	commit             string
+	componentVersion   string
+	govulncheckVersion string
+	toolchain          string
+	vulnDBLastModified string
+}
+
+// freshnessHint hashes the inputs, so an unchanged scan of one commit is a host-side
+// duplicate and an upgraded component, scanner, toolchain, or database re-analyzes.
+//
+// A partial result also hashes its outcome. The store skips a generation whose hint
+// matches the current one, so without this a failed module's generation would freeze
+// a later clean scan of the same inputs until one of them moved. A clean result hashes
+// the inputs alone. This refines the snapshot rule in finish and changes no fact key.
+func freshnessHint(inputs freshnessInputs, outcome string) string {
+	parts := []string{inputs.commit, inputs.componentVersion, inputs.vulnDBLastModified, inputs.toolchain, inputs.govulncheckVersion}
+	if outcome != "" {
+		parts = append(parts, outcome)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// partialOutcome names a partial result by its sorted warning keys, so the same
+// failure repeats as a duplicate and a different one is stored. A clean result has no
+// outcome.
+func partialOutcome(partial bool, warnings []facts.Envelope) string {
+	if !partial {
+		return ""
+	}
+	keys := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		keys = append(keys, warning.StableFactKey)
+	}
+	slices.Sort(keys)
+	return "partial|" + strings.Join(keys, ",")
 }

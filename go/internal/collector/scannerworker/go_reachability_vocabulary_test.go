@@ -11,11 +11,10 @@ import (
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/facts/supply/chain"
 )
 
-// TestGoReachabilityAnalyzerUsesTheSourceAnalysisBudget pins the ruling's
-// budget row: go_reachability runs in the scanner lane with exactly the
-// AnalyzerSourceAnalysis limits (4 CPU, 4 GiB, 10 minutes, 2 GiB input, 250k
-// files, 50k facts).
-func TestGoReachabilityAnalyzerUsesTheSourceAnalysisBudget(t *testing.T) {
+// TestGoReachabilityAnalyzerHasItsMeasuredBudget pins the budget row: the
+// AnalyzerSourceAnalysis limits (4 CPU, 10 minutes, 2 GiB input, 250k files, 50k
+// facts), with memory raised to 12 GiB by the measurement in the package README.
+func TestGoReachabilityAnalyzerHasItsMeasuredBudget(t *testing.T) {
 	t.Parallel()
 
 	if string(AnalyzerGoReachability) != "go_reachability" {
@@ -31,7 +30,7 @@ func TestGoReachabilityAnalyzerUsesTheSourceAnalysisBudget(t *testing.T) {
 	}
 	want := ResourceLimits{
 		CPUMillis:     4000,
-		MemoryBytes:   4 * gibibyte,
+		MemoryBytes:   12 * gibibyte,
 		Timeout:       10 * time.Minute,
 		MaxInputBytes: 2 * gibibyte,
 		MaxFiles:      250000,

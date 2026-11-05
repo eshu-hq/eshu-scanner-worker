@@ -20,6 +20,10 @@ type Module struct {
 	Dir string
 	// ModulePath is the path the go.mod declares. It is evidence, not identity.
 	ModulePath string
+	// LocalReplaces lists the go.mod's local replace targets, relative to the
+	// repository root. Each stays inside the checkout as text. A link in the written
+	// tree can still leave it, so a stage must resolve them before it reads the module.
+	LocalReplaces []string
 }
 
 // StageInput is what stage B receives. Facts it builds must use this claim
@@ -27,6 +31,8 @@ type Module struct {
 type StageInput struct {
 	// Claim is the bounded claim input, including the budgets.
 	Claim scannerworker.ClaimInput
+	// InstanceID is the claimed activation instance.
+	InstanceID string
 	// RepositoryID is the canonical id from the claim scope.
 	RepositoryID string
 	// SourceCommitSHA is the verified commit HEAD points at.
@@ -37,6 +43,8 @@ type StageInput struct {
 	// when a stage runs, after that tree passed the byte and file budgets. It holds
 	// no credential and is removed when Analyze returns.
 	CheckoutDir string
+	// ScratchDir is this claim's private directory, removed with the checkout.
+	ScratchDir string
 	// Modules lists the eligible modules in lexical order.
 	Modules []Module
 }
@@ -53,6 +61,7 @@ func (s StageInput) Envelope(kind, stableKey, recordID string, payload map[strin
 // evidence stays, the analyzer adds a warning fact, and the result is partial.
 type ModuleFailure struct {
 	// RelativePath names the go.mod. It reaches the warning fact, never a label.
+	// Blank means the failure covers the whole repository.
 	RelativePath string
 	// Reason is a bounded warning token.
 	Reason string
@@ -61,19 +70,26 @@ type ModuleFailure struct {
 }
 
 // StageOutcome is what stage B reports. Every eligible module must be counted once
-// in ModulesAnalyzed or Failed, or the analyzer's self-check fails the claim. A
-// retryable failure must return an error instead: it never commits.
+// in ModulesAnalyzed, Failed, or ModulesSkipped, or the analyzer's self-check fails
+// the claim. A retryable failure must return an error instead: it never commits.
 type StageOutcome struct {
 	// Facts holds the stage B source facts.
 	Facts []facts.Envelope
 	// ModulesAnalyzed counts modules whose run finished and whose output was
 	// well-formed.
 	ModulesAnalyzed int
-	// Failed lists the modules that did not finish.
+	// Failed lists the modules that did not finish, and any whole-repository failure
+	// (a blank RelativePath).
 	Failed []ModuleFailure
+	// ModulesSkipped counts eligible modules left unscanned by the module budget.
+	ModulesSkipped int
 	// VulnDBLastModified is the vulnerability database timestamp. It enters the
 	// freshness hint, so a database update re-analyzes an unchanged commit.
 	VulnDBLastModified string
+	// Figures are numeric counts for the stderr record.
+	Figures map[string]int64
+	// Labels are bounded strings for the stderr record: never a path or a URL.
+	Labels map[string]string
 }
 
 // Stage runs after module evidence is built, inside the same checkout. An error

@@ -4,11 +4,11 @@ go 1.26.10
 
 require (
 	github.com/eshu-hq/eshu-sdk/collector v0.2.0-rc.3
-	github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.13
+	github.com/eshu-hq/eshu-sdk/factschema v0.1.0-rc.17
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/knqyf263/go-rpmdb v0.1.1
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8
-	golang.org/x/mod v0.37.0
+	golang.org/x/mod v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -18,10 +18,16 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/telemetry v0.0.0-20261010193011-f71dc92da45e // indirect
+	golang.org/x/tools v0.52.0 // indirect
+	golang.org/x/vuln v1.9.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.55.0 // indirect
 )
+
+tool golang.org/x/vuln/cmd/govulncheck

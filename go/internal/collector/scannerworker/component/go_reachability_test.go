@@ -131,6 +131,7 @@ func runGoReachability(t *testing.T, config map[string]any, continuation *sdkcol
 		Clock:       testClock,
 		goReachability: goreachability.Options{
 			AllowedSchemes: []string{"http"},
+			StageAOnly:     true,
 			ScannerVersion: "test-version",
 			TempRoot:       t.TempDir(),
 		},
@@ -358,9 +359,7 @@ func TestGoReachabilityPagesPinOneGeneration(t *testing.T) {
 func TestProductionRunnerRefusesNonHTTPSTransports(t *testing.T) {
 	t.Parallel()
 
-	claim := testClaim(IDGoReachability, goReachabilityScope, "gen-go-1")
-	config := goReachabilityConfig("file:///unused", strings.Repeat("a", 40), goReachabilityTokenStanza())
-	runTerminal(t, IDGoReachability, testRequest(t, claim, config), "component_bad_config")
+	wantGoReachabilityBadConfig(t, goReachabilityConfig("file:///unused", strings.Repeat("a", 40), goReachabilityTokenStanza()))
 }
 
 // TestOtherComponentsStillRefuseACredential keeps the earlier contract: the
@@ -426,14 +425,15 @@ func TestSeedAcceptsTheGoReachabilityImage(t *testing.T) {
 	digest := strings.Repeat("c", 64)
 	dest := filepath.Join(t.TempDir(), "runtime")
 	ref := "ghcr.io/eshu-hq/scanner-go-reachability@sha256:" + digest
-	if err := Seed(IDGoReachability, []string{"--dest", dest, "--image-ref", ref}); err != nil {
-		t.Fatalf("Seed() error = %v", err)
+	source := fakeToolchain(t, goreachability.PinnedToolchainVersion())
+	if err := seed(IDGoReachability, []string{"--dest", dest, "--image-ref", ref}, source); err != nil {
+		t.Fatalf("seed() error = %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dest, "manifest.yaml"))
 	if err != nil || !strings.Contains(string(raw), ref) {
 		t.Fatalf("seeded manifest = %q, %v", raw, err)
 	}
-	if err := Seed(IDGoReachability, []string{"--dest", dest, "--image-ref", "ghcr.io/eshu-hq/scanner-sbom@sha256:" + digest}); err == nil {
-		t.Fatal("Seed() with another component's image: error = nil")
+	if err := seed(IDGoReachability, []string{"--dest", dest, "--image-ref", "ghcr.io/eshu-hq/scanner-sbom@sha256:" + digest}, source); err == nil {
+		t.Fatal("seed() with another component's image: error = nil")
 	}
 }

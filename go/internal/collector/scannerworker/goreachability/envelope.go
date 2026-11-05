@@ -23,19 +23,44 @@ const (
 	warningGoModTooLarge        = "go_mod_too_large"
 	warningGoModNotRegular      = "go_mod_not_regular"
 	warningGoModInvalidPath     = "go_mod_invalid_path"
-	warningNoGoModules          = "no_go_modules"
-	warningNoRequirements       = "no_module_requirements"
+	warningGoSumNotRegular      = "go_sum_not_regular"
+	// warningReplaceOutsideCheckout is terminal for the commit: the go.mod names it.
+	warningReplaceOutsideCheckout = "replace_outside_checkout"
+	warningNoGoModules            = "no_go_modules"
+	warningNoRequirements         = "no_module_requirements"
+	warningCgoRequired            = "cgo_required"
+	warningAnalysisTimeout        = "analysis_timeout"
+	warningAnalysisFailed         = "analysis_failed"
+	warningModuleBudgetExceeded   = "module_budget_exceeded"
+	warningModuleDownloadFailed   = "module_download_failed"
+	warningVulnDBUnavailable      = "vulndb_unavailable"
+	// warningCgoExcluded names a finished scan over a graph that lost a file only
+	// cgo excluded: its symbol facts are written, its not_called pairs withheld.
+	warningCgoExcluded = "cgo_excluded"
+	// warningLinkOutsideCheckout names a module no child may start for: a link
+	// under it or a local replace root resolves outside the checkout.
+	warningLinkOutsideCheckout = "link_outside_checkout"
 )
 
 // warningDetails is fixed text per reason, so no file content reaches a fact.
 var warningDetails = map[string]string{
-	warningToolchainUnsupported: "a go or toolchain directive is above the pinned toolchain; this module is not analyzed for reachability",
-	warningGoModParseFailed:     "go.mod did not parse; no module evidence for this file",
-	warningGoModTooLarge:        "go.mod is above the read bound; no module evidence for this file",
-	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
-	warningGoModInvalidPath:     "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
-	warningNoGoModules:          "no go.mod at this commit outside excluded directories",
-	warningNoRequirements:       "no go.mod at this commit declares a requirement",
+	warningToolchainUnsupported:   "a go or toolchain requirement is above the pinned toolchain; this module is not analyzed for reachability",
+	warningGoModParseFailed:       "go.mod did not parse; no module evidence for this file",
+	warningGoModTooLarge:          "go.mod is above the read bound; no module evidence for this file",
+	warningGoModNotRegular:        "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
+	warningGoModInvalidPath:       "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
+	warningGoSumNotRegular:        "go.sum is a symlink or a submodule link, which a scan would write through; this module is not analyzed for reachability",
+	warningReplaceOutsideCheckout: "a local replace leaves the checkout, so a scan would report code outside this commit; this module is not analyzed for reachability",
+	warningNoGoModules:            "no go.mod at this commit outside excluded directories",
+	warningNoRequirements:         "no go.mod at this commit declares a requirement",
+	warningCgoRequired:            "a package needs cgo, which this scan disables; this module is not analyzed for reachability",
+	warningAnalysisTimeout:        "the scan of this module did not finish in its budget; this module is not analyzed for reachability",
+	warningAnalysisFailed:         "the scan of this module did not finish; this module is not analyzed for reachability",
+	warningModuleDownloadFailed:   "a required module did not download; this module is not analyzed for reachability",
+	warningVulnDBUnavailable:      "the vulnerability database was not reachable; this module is not analyzed for reachability",
+	warningModuleBudgetExceeded:   "this repository has more modules than one claim scans; some are not analyzed for reachability",
+	warningCgoExcluded:            "a file only cgo excluded was not in the scanned graph, so no not_called is claimed for this module; any symbol findings from the finished scan are kept",
+	warningLinkOutsideCheckout:    "a link under this module or one of its local replace roots resolves outside the checkout, so a scan would read code outside this commit; this module is not analyzed for reachability",
 }
 
 // Scanner vocabulary for the scanner_worker.warning status fields, shared with
@@ -95,9 +120,11 @@ func (c emitContext) evidenceFact(module goModule, item requirement) facts.Envel
 // warningFact builds one scanner_worker.warning fact, the kind readiness reads. The
 // class goes in reason; warning_class stays the constant every producer of this kind
 // writes. A blank relative path covers the whole repository, so the key is left out.
+// The key names the go.mod file, not a dependency, because a scan is keyed by the file.
 //
-// repository_id and relative_path are written as JSON keys: the pinned factschema has
-// no typed field for them, and its schema admits unknown keys.
+// factschema types repository_id and relative_path as the warning join keys. A path
+// the escape rewrote is not byte-equal to evidence rows, so it does not join: that
+// module then has no reachability evidence, and never reads not_called.
 func (c emitContext) warningFact(reason, relativePath string) facts.Envelope {
 	key := facts.StableID(facts.ScannerWorkerWarningFactKind, map[string]any{
 		"analyzer":      warningAnalyzer,
