@@ -169,10 +169,12 @@ func TestWarningStableKeyIsTheRuledTuple(t *testing.T) {
 	}
 }
 
-// TestRetryableClassesFailTheWholeClaimOnce is the commit-or-nothing rule for a
-// transient gap: the first attempt returns no generation, so reachability is never
-// retracted over an outage. The next attempt names the module and commits.
-func TestRetryableClassesFailTheWholeClaimOnce(t *testing.T) {
+// TestTransientClassesNeverCommitAWarnedModule is the commit-or-nothing rule
+// for a transient gap (B5): every attempt returns no generation, so proven
+// reachability is never retracted over an outage. Only the host's attempt
+// budget ends these classes, as attempt_budget_exhausted with no generation;
+// the satellite never hardcodes that budget.
+func TestTransientClassesNeverCommitAWarnedModule(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
@@ -188,19 +190,12 @@ func TestRetryableClassesFailTheWholeClaimOnce(t *testing.T) {
 			recorded := fixturePath(t, "xtext_v0_3_5_symbol_source.jsonl")
 			toolchain, _ := fakeScanner(t, `case "$PWD" in */bad) printf '%s
 ' '`+tc.stderr+`' >&2; exit 1;; *) cat `+recorded+`;; esac`)
-			first := stageInput(t, "bad/go.mod", "good/go.mod")
-			_, err := runStage(t, toolchain, first, nil)
-			wantFailure(t, err, tc.class, true)
-			wantReason(t, err, tc.reason)
-
-			second := stageInput(t, "bad/go.mod", "good/go.mod")
-			second.Claim.Attempt = 2
-			outcome, err := runStage(t, toolchain, second, nil)
-			if err != nil {
-				t.Fatalf("attempt 2: Run() error = %v", err)
-			}
-			if outcome.ModulesAnalyzed != 1 || len(outcome.Failed) != 1 || outcome.Failed[0].Reason != tc.reason || outcome.Failed[0].Class != tc.class {
-				t.Fatalf("attempt 2: outcome = %d analyzed, %+v", outcome.ModulesAnalyzed, outcome.Failed)
+			for _, attempt := range []int{1, 2, 10} {
+				input := stageInput(t, "bad/go.mod", "good/go.mod")
+				input.Claim.Attempt = attempt
+				_, err := runStage(t, toolchain, input, nil)
+				wantFailure(t, err, tc.class, true)
+				wantReason(t, err, tc.reason)
 			}
 		})
 	}

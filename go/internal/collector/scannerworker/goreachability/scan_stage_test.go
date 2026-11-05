@@ -28,7 +28,12 @@ func fakeScanner(t *testing.T, body string) (Toolchain, string) {
 	// absolute paths, then widens PATH for its body.
 	source := "#!/bin/sh\n{ printf 'CALL %s\\n' \"$*\"; printf 'DIR %s\\n' \"$PWD\"; /usr/bin/env | /usr/bin/sed 's/^/ENV /'; } >> " + log + "\nPATH=/usr/bin:/bin\nexport PATH\n" + body + "\n"
 	writeExecutable(t, script, source)
-	return Toolchain{GoRoot: filepath.Join(dir, "goroot"), Govulncheck: script}, log
+	toolchain := Toolchain{GoRoot: filepath.Join(dir, "goroot"), Govulncheck: script}
+	// The cgo probe runs the toolchain's go command, so every fake toolchain
+	// carries a stand-in that logs as GO and lists nothing. writeFakeGo
+	// replaces it where a test needs the probe to see a graph.
+	writeFakeGo(t, toolchain, "#!/bin/sh\n{ printf 'GO %s\\n' \"$*\"; } >> "+log+"\n")
+	return toolchain, log
 }
 
 // fixturePath is a committed recorded run, absolute so a stand-in can cat it.

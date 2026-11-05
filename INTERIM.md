@@ -106,8 +106,10 @@ Component lane, first slice (os_package_extraction):
   to `<dest>/toolchain`. Failures are `scanner_worker.warning` with `reason`,
   `repository_id`, and `relative_path`, which factschema `v0.1.0-rc.17` types, along with
   the provenance keys on the reachability fact. Every committed generation is a full snapshot of one commit and attests
-  deletion; a unit it could not observe is named by a warning in that generation. A
-  retryable class fails the whole claim once with no generation. See
+  deletion; a unit it could not observe is named by a warning in that generation.
+  Retry is per class: a transient gap fails the whole claim with no generation on
+  every attempt until the host's budget ends it, a proxy 404/410 is terminal for its
+  module at once, and a timeout retries once. See
   `goreachability/README.md` for the rule and the measured budgets.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte

@@ -321,6 +321,7 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 		return scannerworker.AnalyzerResult{}, factLimitFailure()
 	}
 	figures := map[string]int64{
+		"attempt":            int64(emit.input.Attempt),
 		"modules_total":      int64(modulesTotal),
 		"modules_analyzed":   int64(outcome.ModulesAnalyzed),
 		"requirements_total": int64(read.requirements),

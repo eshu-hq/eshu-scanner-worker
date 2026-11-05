@@ -64,10 +64,11 @@ const (
 	// budget.
 	FailureClassAnalysisTimeout FailureClass = "analysis_timeout"
 	// FailureClassModuleDownloadFailed covers a module the go command could not
-	// fetch. It is retryable once, then terminal for that module.
+	// fetch. A transient failure retries on every attempt and never commits; a
+	// proxy 404 or 410 is terminal for that module.
 	FailureClassModuleDownloadFailed FailureClass = "module_download_failed"
 	// FailureClassVulnDBUnavailable covers an unreachable vulnerability database. It
-	// is retryable once, then terminal for that module.
+	// retries on every attempt and never commits a warned module.
 	FailureClassVulnDBUnavailable FailureClass = "vulndb_unavailable"
 	// FailureClassSelfCheckFailed covers a result whose module counts do not add up.
 	// It is terminal: such a result never commits.

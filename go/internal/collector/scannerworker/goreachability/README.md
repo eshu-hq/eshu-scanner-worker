@@ -17,9 +17,10 @@ only; it never decides supersession.
 | Checkout failed or auth denied | retryable or terminal | n/a | the class | none, no generation |
 | Tree over a budget | terminal | n/a | the class | none, no generation |
 | Module counts do not add up | terminal | n/a | `self_check_failed` | none, no generation |
-| A retryable module class, first attempt | retryable | n/a | the class | none, no generation |
+| A failure a retry could still change (table below) | retryable | n/a | the class | none, no generation |
 | No `go.mod` of any type | complete | false | empty | one `no_go_modules` warning |
 | Every module parsed and analyzed | complete | false | empty | evidence and reachability |
+| A scan over a cgo-incomplete graph | partial | true | `analysis_failed` | the rest, the module's `symbol` facts, one `cgo_excluded` warning; its `not_called` pairs withheld |
 | A module omitted for a terminal reason | partial | true | the class; toolchain wins | the rest, plus one warning per omitted module |
 | No stage wired, any `go.mod` | partial | true | empty | evidence only |
 
@@ -27,9 +28,27 @@ A failed module has no reachability fact. Its earlier fact leaves truth with the
 generation and the finding reads as missing evidence: the old verdict measured another
 commit or database, so it is never carried forward.
 
-Retryable classes are `analysis_timeout`, `module_download_failed`, and
-`vulndb_unavailable`. They fail the whole claim once. From the second attempt each is
-terminal for its module and the rest of the result commits.
+Retry is per class, read against the claim's attempt number (the first run is attempt
+1). The satellite never hardcodes the host's attempt budget: the claim does not carry
+it, and the host ends an always-retryable class as `attempt_budget_exhausted` with no
+generation. When a failure is retryable on this attempt, the stage stops scanning the
+remaining modules and returns at once — nothing from the run commits, so each further
+scan would only pay a full package load before the same outage. Terminal module
+failures keep the loop going so the commit carries the rest of the repository.
+
+| Reason | Attempt 1 | Attempt ≥ 2 | `retry_after_seconds` |
+| --- | --- | --- | --- |
+| `vulndb_unavailable` | retryable, no generation | retryable, every attempt; never commits a warned module | 300 |
+| `module_download_failed` naming `404 Not Found` or `410 Gone` | terminal for the module: commits with the warning | same | — |
+| `module_download_failed`, any other marker | retryable, no generation | retryable, every attempt | 300 |
+| `analysis_timeout` | retryable, no generation | terminal for the module: commits with the warning | 60 |
+| `source_unavailable` (scan cache or scratch will not open) | retryable | retryable, every attempt | 60 |
+
+A 404 from the proxy is deterministic under the fleet policy (no `GOPRIVATE`), so it is
+terminal like `toolchain_unsupported`; when a 404 line and a `dial tcp` line both
+appear, the status code wins because the proxy answered. A committed generation
+therefore never carries a `vulndb_unavailable` warning, and its
+`module_download_failed` warnings are always the 404/410 kind.
 
 ## Freshness
 
@@ -56,7 +75,8 @@ has no reachability evidence, and never reads `not_called`.
 | Reason | Meaning |
 | --- | --- |
 | `toolchain_unsupported` | A `go` or `toolchain` directive, or a dependency, needs a newer Go than the pin. |
-| `cgo_required` | A package needs cgo, which the scan disables. |
+| `cgo_required` | A package needs cgo, which the scan disables. No facts from this module. |
+| `cgo_excluded` | The scan finished, but a file only cgo excluded was not in its graph, so `not_called` could be wrong. The module's `symbol` facts are written, its `not_called` pairs withheld. |
 | `analysis_timeout` | The scan did not finish in its budget. |
 | `module_download_failed` | A required module would not fetch, including a private one. |
 | `vulndb_unavailable` | The vulnerability database was not reachable. |
@@ -64,6 +84,7 @@ has no reachability evidence, and never reads `not_called`.
 | `module_budget_exceeded` | Whole repository: more modules than one claim scans. |
 | `go_mod_parse_failed`, `go_mod_too_large`, `go_mod_not_regular`, `go_mod_invalid_path` | The `go.mod` could not be used. |
 | `replace_outside_checkout` | A local `replace` leaves the checkout, as written or through a link. A scan would report that code as this commit's, so the module is not scanned and its evidence stays. Terminal for the commit. |
+| `link_outside_checkout` | A link under the module, or under one of its local replace roots, resolves outside the checkout. The go command reads a linked `.go` file and a linked package directory from outside the module, so no child starts; the evidence stays. Terminal for the commit. A link that stays inside the checkout, and a dangling link, are allowed. |
 | `go_sum_not_regular` | The `go.sum` beside the `go.mod` is a link. The go command would write through it, so the module is not scanned and its evidence stays. |
 | `no_go_modules`, `no_module_requirements` | The scan finished with nothing to report. |
 
@@ -72,6 +93,29 @@ has no reachability evidence, and never reads `not_called`.
 `ScanStage` runs `govulncheck -json -mode source ./...` in each module directory, as a
 child in its own process group, so a crash or timeout costs one module. The child's
 environment is built from nothing; a test asserts it whole. The token never reaches it.
+Before any child starts, the module directory and every local replace root are walked
+without following links, and a link resolving outside the checkout refuses the module
+(`link_outside_checkout`): measured, `go list` reads a linked `.go` file and a linked
+directory from outside the module, so it would report code that is not in this commit.
+
+`not_called` means govulncheck's static call graph found no path under the scan
+configuration GOOS=linux, GOARCH of the image, CGO_ENABLED=0, no build tags, no test
+code; calls through `reflect`, `unsafe`, and function values are the documented
+govulncheck caveats. The stderr record carries `goos` and `goarch` labels for the
+configuration a run used. GOOS, GOARCH, and custom-tag exclusions are this stated
+caveat, never a withheld verdict: withholding for them would make `not_called`
+unreachable on nearly every module that depends on `golang.org/x/sys`. Cgo is the one
+exception, because a `!cgo` fallback beside a cgo file is a stub for a build the author
+does not ship, so the cgo-off graph is systematically not the deployed graph. A fold
+that produced at least one `not_called` pair therefore pays one `go list -e -deps`
+probe (the same probe that names a failed scan `cgo_required`), under the module
+context that bounded the scan. If a file in a non-standard package was excluded only
+by cgo, the module keeps its `symbol` facts and withholds every `not_called` pair
+under `cgo_excluded`; a probe that errors fails the module whole rather than guess.
+This finished-but-incomplete shape refines the factschema warning table: the scan
+finished with a trustworthy config, so its symbol facts are written beside the warning
+(a doc-comment row for it is owed by the next factschema release candidate). The
+stderr figures count it as `modules_cgo_excluded` and `findings_not_called_withheld`.
 
 Operators may set `GOPROXY`, `GOSUMDB`, `GOVULNDB`, `HTTPS_PROXY`, `NO_PROXY`, and
 `SSL_CERT_FILE`. A Go policy variable such as `GOFLAGS`, or a `GOPROXY` naming `direct`,
@@ -94,7 +138,10 @@ Real output that shaped the code, recorded in
 - A vulnerable module that is required but never imported produces no finding at all, so
   it has no fact and no warning and stays `unknown`. It is never `not_called`: a run that
   required `golang.org/x/crypto` at a vulnerable version without importing it reported
-  nothing for that module. A fixture corpus must expect `unknown` for this case.
+  nothing for that module. A fixture corpus must expect `unknown` for this case. The
+  same holds for a module imported only from a cgo-excluded file: no finding, no fact,
+  missing evidence — so a fold with no `not_called` pair runs no cgo probe and earns no
+  warning.
 - govulncheck v1.9.0 emits `SBOM` messages, and osv bodies are 99% of the stream.
 
 ## Measured budgets
@@ -134,6 +181,28 @@ What this decided, against the ruling's threshold of 10 minutes and 4 GiB:
 - `toolchain_unsupported` is expected on recent repositories: every module of etcd at HEAD
   and golang/tools' `gopls` need Go 1.27, above the pinned `go1.26.10`. This is the largest
   source of missing evidence in this sample, and it ends when the pin moves.
+
+The cgo probe over the same repositories (2026-11-05, this host under shared load, the
+pinned `go1.26.10`, warm module cache, `go list -e -deps` under the scan environment;
+`-mod=readonly`, so measuring a live checkout could not rewrite its go.mod). Only a
+module whose fold produced a `not_called` pair, or whose scan failed with a plain
+`analysis_failed`, ever pays it — these totals are the pay-for-every-module upper
+bound, and `findings_not_called_withheld` is from the real scan where one ran:
+
+| Repository | Modules | `modules_cgo_excluded` | Withheld | Probe wall s (per module: max / total) |
+| --- | --- | --- | --- | --- |
+| Fixture (cgopair: a `//go:build cgo` caller beside a `!cgo` stub) | 1 | 1 | 4 | 0.09 / 0.09 |
+| eshu-hq/eshu-scanner-worker | 1 | 0 | 0 | 1.38 / 1.38 |
+| eshu-hq/eshu (16 tracked modules outside testdata) | 16 | 1 (`go`, whose scan already fails `cgo_required` on the probe's failure arm, so it withholds nothing) | 0 | 32.74 (`go`; every other module ≤ 0.28) / 33.62 |
+| golang/tools `1ca5072` | 3 | 0 | 0 | 0.18 / 0.19 (`gopls` does not list on Go 1.26; its scan fails `toolchain_unsupported` before any probe) |
+
+**The budgets held unchanged.** The probe shares the scan's 5-minute module context:
+the worst module here (`go`, 32.74 s) spent 134.38 s scanning cold before failing, so
+scan plus probe stays well inside it, and no claim approaches the 10-minute budget —
+eshu-hq/eshu's warm claim was 33.35 s against a 33.62 s all-modules probe upper bound
+it would only partly pay. The real cgopair scan through `ScanStage` withheld its 4
+`not_called` pairs under one `cgo_excluded` warning and emitted no `not_called` fact;
+the control without the constraint read `findings_symbol: 1` with no warning.
 
 Numbers not yet recorded: a large many-module repository that scans cleanly (etcd at a
 tag older than Go 1.27), and a re-run on the final image.

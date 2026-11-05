@@ -263,6 +263,12 @@ func TestStageBTimeoutRetriesOnFirstAttempt(t *testing.T) {
 	if !strings.Contains(stderr.String(), `"failure_reason":"analysis_timeout"`) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+	if !strings.Contains(stderr.String(), `"attempt":1`) {
+		t.Fatalf("stderr does not name the attempt: %q", stderr.String())
+	}
+	if page.Statuses[0].RetryAfterSeconds != 60 {
+		t.Fatalf("retry_after_seconds = %d, want the timeout class's 60", page.Statuses[0].RetryAfterSeconds)
+	}
 }
 
 // roundTripResult sends a page across JSON, as the host receives it.

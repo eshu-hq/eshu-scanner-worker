@@ -6,11 +6,11 @@ package goreachability
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -31,6 +31,13 @@ const (
 	leaseReserve = 30 * time.Second
 	// scanStderrLimit bounds what one scan's stderr may buffer for classifying.
 	scanStderrLimit = 64 * 1024
+	// retryAfterTransientSeconds paces the always-retryable classes. Over the
+	// host's attempt budget it stretches the covered outage window from about
+	// ten minutes to about fifty; the host clamps a request at one hour.
+	retryAfterTransientSeconds = 300
+	// retryAfterShortSeconds paces a first-attempt timeout and a scan cache
+	// that will not open.
+	retryAfterShortSeconds = 60
 )
 
 // ScanConfig builds a ScanStage.
@@ -81,28 +88,42 @@ func NewScanStage(config ScanConfig) (*ScanStage, error) {
 
 // Run scans each eligible module in order and folds each stream to facts. A
 // module that does not finish yields a warning and no reachability fact, so it
-// can never read as not_called.
+// can never read as not_called. A finished scan whose graph lost a file only
+// cgo excluded keeps its symbol facts, withholds every not_called pair, and
+// is named cgo_excluded instead of analyzed (see finishScannedModule).
 //
-// A retryable class (a timeout, a failed module download, an unreachable database)
-// fails the whole claim once, with no generation: a transient gap must never retract
-// reachability. After that the class is terminal for the module, and the rest of the
-// result commits with the module named.
+// Retry is policy per class against input.Claim.Attempt (the first run is 1);
+// the satellite never hardcodes the host's attempt budget. An unreachable
+// database and a transient module download retry on every attempt and never
+// commit a warned module: a transient gap must never retract reachability,
+// and the host's budget ends them. A proxy 404 or 410 is deterministic under
+// the fleet policy (no GOPRIVATE), so it is terminal for its module on the
+// first attempt. A timeout retries once, then names its module. A failure a
+// retry could still change fails the whole claim at once with no generation
+// and stops the scan loop: nothing from the run commits, so each further
+// module would only pay a full package load before the same failure.
 func (s *ScanStage) Run(ctx context.Context, input StageInput) (StageOutcome, error) {
 	cache, err := openScanCache(s.config.CacheRoot, s.config.CacheLimitBytes)
 	if err != nil {
-		return StageOutcome{}, scannerworker.NewRetryableAnalyzerFailure(scannerworker.FailureClassSourceUnavailable, scannerworker.ResourceUsage{}, err)
+		return StageOutcome{}, cacheFailure(err)
 	}
 	defer func() { _ = cache.Close() }()
 
 	for _, dir := range []string{"scan-home", "scan-tmp"} {
 		if err := os.MkdirAll(filepath.Join(input.ScratchDir, dir), 0o700); err != nil {
-			return StageOutcome{}, scannerworker.NewRetryableAnalyzerFailure(scannerworker.FailureClassSourceUnavailable, scannerworker.ResourceUsage{}, err)
+			return StageOutcome{}, cacheFailure(err)
 		}
 	}
 	env := scanEnvironment(s.config.Toolchain, cache.modCache, cache.buildCache, input.ScratchDir, s.overrides)
 	outcome := StageOutcome{
-		Figures: map[string]int64{"findings_symbol": 0, "findings_not_called": 0, "findings_stdlib_dropped": 0, "modcache_pruned": 0},
-		Labels:  map[string]string{"scanner_version": GovulncheckVersion, "toolchain": PinnedToolchainVersion()},
+		Figures: map[string]int64{
+			"findings_symbol": 0, "findings_not_called": 0, "findings_stdlib_dropped": 0,
+			"findings_not_called_withheld": 0, "modules_cgo_excluded": 0, "modcache_pruned": 0,
+		},
+		Labels: map[string]string{
+			"scanner_version": GovulncheckVersion, "toolchain": PinnedToolchainVersion(),
+			"goos": runtime.GOOS, "goarch": runtime.GOARCH,
+		},
 	}
 	if cache.pruned {
 		outcome.Figures["modcache_pruned"] = 1
@@ -113,46 +134,122 @@ func (s *ScanStage) Run(ctx context.Context, input StageInput) (StageOutcome, er
 		modules = modules[:s.config.MaxModules]
 		outcome.Failed = append(outcome.Failed, ModuleFailure{Reason: warningModuleBudgetExceeded, Class: scannerworker.FailureClassAnalysisFailed})
 	}
-	retryReason := ""
 	for _, module := range modules {
-		result := s.scanModule(ctx, input, module, env)
-		if result.failure != "" {
-			if retryableReason(result.failure) && retryReason == "" {
-				retryReason = result.failure
-			}
-			outcome.Failed = append(outcome.Failed, ModuleFailure{RelativePath: module.RelativePath, Reason: result.failure, Class: classForReason(result.failure)})
+		moduleCtx, cancel := s.moduleContext(ctx, input)
+		result := s.scanModule(moduleCtx, input, module, env)
+		if result.failure == "" {
+			result.failure = s.finishScannedModule(moduleCtx, &outcome, input, module, result.stream, env)
+		}
+		cancel()
+		if result.failure == "" {
 			continue
 		}
-		if err := outcome.addModule(input, module, result.stream); err != nil {
-			outcome.Failed = append(outcome.Failed, ModuleFailure{RelativePath: module.RelativePath, Reason: warningAnalysisFailed, Class: scannerworker.FailureClassAnalysisFailed})
-			continue
+		if failure, retry := retryableFailure(result, input.Claim.Attempt); retry {
+			return StageOutcome{}, failure
 		}
-		outcome.ModulesAnalyzed++
-	}
-	if retryReason != "" && input.Claim.Attempt <= 1 {
-		failure := scannerworker.NewRetryableAnalyzerFailure(retryClass(retryReason), scannerworker.ResourceUsage{}, nil)
-		return StageOutcome{}, asFailure(failure).WithReason(retryReason)
+		outcome.Failed = append(outcome.Failed, ModuleFailure{RelativePath: module.RelativePath, Reason: result.failure, Class: classForReason(result.failure)})
 	}
 	return outcome, nil
+}
+
+// cacheFailure is a scan cache or scratch directory that will not open: retryable
+// on every attempt at the short delay, ended only by the host's budget.
+func cacheFailure(err error) error {
+	failure := scannerworker.NewRetryableAnalyzerFailure(scannerworker.FailureClassSourceUnavailable, scannerworker.ResourceUsage{}, err)
+	return asFailure(failure).WithRetryAfterSeconds(retryAfterShortSeconds)
+}
+
+// finishScannedModule folds one finished, trustworthy stream into the outcome
+// and returns its failure reason, or empty when the module was analyzed. Only
+// a fold holding at least one not_called pair pays the cgo probe, under the
+// same module context that bounded the scan: a probe cut by that deadline is
+// an analysis_timeout, any other probe error fails the module whole with no
+// facts (fail closed), and a probe that finds a cgo-excluded file withholds
+// every not_called pair while the symbol facts — real call paths under this
+// build configuration — stay. A module with no not_called pair needs no probe
+// and no warning: nothing is withheld, and a vulnerable module imported only
+// from a cgo-excluded file produced no finding at all, so it reads as missing
+// evidence, never not_called.
+func (s *ScanStage) finishScannedModule(ctx context.Context, outcome *StageOutcome, input StageInput, module Module, stream scanStream, env []string) string {
+	folded, stdlib, err := foldFindings(stream.config.ScanLevel, stream.findings)
+	if err != nil {
+		return warningAnalysisFailed
+	}
+	notCalled := 0
+	for _, finding := range folded {
+		if finding.level == levelNotCalled {
+			notCalled++
+		}
+	}
+	if notCalled > 0 {
+		dir := filepath.Join(input.CheckoutDir, filepath.FromSlash(module.Dir))
+		excluded, probeErr := s.graphCgoExcluded(ctx, dir, env)
+		if ctx.Err() != nil {
+			return warningAnalysisTimeout
+		}
+		if probeErr != nil {
+			return warningAnalysisFailed
+		}
+		if excluded {
+			outcome.addFolded(input, module, stream, folded, stdlib, true)
+			outcome.Figures["findings_not_called_withheld"] += int64(notCalled)
+			outcome.Figures["modules_cgo_excluded"]++
+			return warningCgoExcluded
+		}
+	}
+	outcome.addFolded(input, module, stream, folded, stdlib, false)
+	outcome.ModulesAnalyzed++
+	return ""
+}
+
+// retryableFailure applies the per-class retry policy to one module failure.
+// It returns the claim failure to stop with, and whether to stop at all.
+func retryableFailure(result moduleScan, attempt int) (error, bool) {
+	var after int
+	switch result.failure {
+	case warningVulnDBUnavailable:
+		after = retryAfterTransientSeconds
+	case warningModuleDownloadFailed:
+		if result.downloadTerminal {
+			return nil, false
+		}
+		after = retryAfterTransientSeconds
+	case warningAnalysisTimeout:
+		if attempt > 1 {
+			return nil, false
+		}
+		after = retryAfterShortSeconds
+	default:
+		return nil, false
+	}
+	failure := scannerworker.NewRetryableAnalyzerFailure(retryClass(result.failure), scannerworker.ResourceUsage{}, nil)
+	return asFailure(failure).WithReason(result.failure).WithRetryAfterSeconds(after), true
 }
 
 // moduleScan is one module's result: a stream, or a bounded failure reason.
 type moduleScan struct {
 	stream  scanStream
 	failure string
+	// downloadTerminal marks a module download the proxy answered 404 or 410
+	// to: deterministic for this commit, so no attempt retries it.
+	downloadTerminal bool
 }
 
-// scanModule runs and classifies one module. The output counts only when the
-// process exited 0 with a well-formed stream from the pinned scanner at symbol
-// level and source mode.
-func (s *ScanStage) scanModule(ctx context.Context, input StageInput, module Module, env []string) moduleScan {
-	moduleCtx, cancel := s.moduleContext(ctx, input)
-	defer cancel()
+// scanModule runs and classifies one module under the module context, which
+// also bounds the cgo probe a fold or a failure may need after. The output
+// counts only when the process exited 0 with a well-formed stream from the
+// pinned scanner at symbol level and source mode. No child starts until the
+// module's replace targets and every link under the scanned roots are proven
+// inside the checkout.
+func (s *ScanStage) scanModule(moduleCtx context.Context, input StageInput, module Module, env []string) moduleScan {
 	if moduleCtx.Err() != nil {
 		return moduleScan{failure: warningAnalysisTimeout}
 	}
 	if !replacesStayInCheckout(input.CheckoutDir, module.LocalReplaces) {
 		return moduleScan{failure: warningReplaceOutsideCheckout}
+	}
+	if !linksStayInCheckout(input.CheckoutDir, module) {
+		return moduleScan{failure: warningLinkOutsideCheckout}
 	}
 	dir := filepath.Join(input.CheckoutDir, filepath.FromSlash(module.Dir))
 	stream, stderr, runErr, parseErr := s.runScanner(moduleCtx, dir, env)
@@ -167,12 +264,28 @@ func (s *ScanStage) scanModule(ctx context.Context, input StageInput, module Mod
 		if failure == warningAnalysisFailed && s.graphNeedsCgo(moduleCtx, dir, env) {
 			failure = warningCgoRequired
 		}
-		return moduleScan{failure: failure}
+		return moduleScan{failure: failure, downloadTerminal: failure == warningModuleDownloadFailed && downloadAnsweredTerminal(stderr)}
 	}
 	if parseErr != nil || !trustworthyConfig(stream.config) {
 		return moduleScan{failure: warningAnalysisFailed}
 	}
 	return moduleScan{stream: stream}
+}
+
+// downloadTerminalMarkers are the proxy or sumdb answers that cannot change
+// for this commit. A private module's 404 rides beside a dial tcp line for the
+// go-get fallback; the status wins because the proxy answered.
+var downloadTerminalMarkers = []string{"404 Not Found", "410 Gone"}
+
+// downloadAnsweredTerminal reports whether a download failure names a 404 or
+// a 410 from the proxy or the sum database.
+func downloadAnsweredTerminal(stderr string) bool {
+	for _, marker := range downloadTerminalMarkers {
+		if strings.Contains(stderr, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // scanWithNoPackages reads why ./... matched nothing, because three different trees
@@ -272,16 +385,6 @@ func classifyScanFailure(stderr string) string {
 	return warningAnalysisFailed
 }
 
-// retryableReason names the classes one retry could change.
-func retryableReason(reason string) bool {
-	switch reason {
-	case warningAnalysisTimeout, warningModuleDownloadFailed, warningVulnDBUnavailable:
-		return true
-	default:
-		return false
-	}
-}
-
 // retryClass names the claim's failure class for a retry.
 func retryClass(reason string) scannerworker.FailureClass {
 	if reason == warningAnalysisTimeout {
@@ -294,8 +397,8 @@ var toolchainFailureMarkers = []string{"requires go >=", "toolchain not availabl
 
 // vulnDBFailureMarkers are what govulncheck prints when it cannot read the database,
 // and downloadFailureMarkers what the go command prints when a module will not fetch.
-// A private module's 404 reads the same as an outage, so it retries once and then
-// names the module.
+// A private module's 404 shares those lines with an outage; downloadAnsweredTerminal
+// tells the two apart for the retry policy.
 var (
 	vulnDBFailureMarkers   = []string{"creating client:", "fetching vulnerabilities:"}
 	downloadFailureMarkers = []string{": reading https://", "dial tcp", "TLS handshake", "verifying module", "Get \"https://"}
@@ -333,13 +436,14 @@ func classForReason(reason string) scannerworker.FailureClass {
 	}
 }
 
-// addModule folds one finished stream into facts and figures.
-func (o *StageOutcome) addModule(input StageInput, module Module, stream scanStream) error {
-	folded, stdlib, err := foldFindings(stream.config.ScanLevel, stream.findings)
-	if err != nil {
-		return fmt.Errorf("fold module findings: %w", err)
-	}
+// addFolded writes one module's folded findings as facts and figures. With
+// withholdNotCalled, every not_called pair is left out — and uncounted here;
+// the caller counts what it withheld — while the symbol pairs are written.
+func (o *StageOutcome) addFolded(input StageInput, module Module, stream scanStream, folded []foldedFinding, stdlib int, withholdNotCalled bool) {
 	for _, finding := range folded {
+		if withholdNotCalled && finding.level == levelNotCalled {
+			continue
+		}
 		o.Facts = append(o.Facts, input.reachabilityFact(module, stream.config, finding))
 		switch finding.level {
 		case levelSymbol:
@@ -353,7 +457,6 @@ func (o *StageOutcome) addModule(input StageInput, module Module, stream scanStr
 		o.VulnDBLastModified = modified
 		o.Labels["vulndb_last_modified"] = modified
 	}
-	return nil
 }
 
 var _ Stage = (*ScanStage)(nil)

@@ -179,7 +179,7 @@ func (r Runner) Run(ctx context.Context) error {
 	cancel()
 	latencyMS := int(time.Since(start).Milliseconds())
 	if err != nil {
-		r.logFailure(analyzer, observedAt, err, latencyMS)
+		r.logFailure(analyzer, observedAt, err, latencyMS, req.Claim.Attempt)
 		return r.emitFailure(req.Claim, observedAt, err)
 	}
 	output := result.Output

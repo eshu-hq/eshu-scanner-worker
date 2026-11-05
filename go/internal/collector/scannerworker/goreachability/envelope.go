@@ -34,6 +34,12 @@ const (
 	warningModuleBudgetExceeded   = "module_budget_exceeded"
 	warningModuleDownloadFailed   = "module_download_failed"
 	warningVulnDBUnavailable      = "vulndb_unavailable"
+	// warningCgoExcluded names a finished scan over a graph that lost a file only
+	// cgo excluded: its symbol facts are written, its not_called pairs withheld.
+	warningCgoExcluded = "cgo_excluded"
+	// warningLinkOutsideCheckout names a module no child may start for: a link
+	// under it or a local replace root resolves outside the checkout.
+	warningLinkOutsideCheckout = "link_outside_checkout"
 )
 
 // warningDetails is fixed text per reason, so no file content reaches a fact.
@@ -53,6 +59,8 @@ var warningDetails = map[string]string{
 	warningModuleDownloadFailed:   "a required module did not download; this module is not analyzed for reachability",
 	warningVulnDBUnavailable:      "the vulnerability database was not reachable; this module is not analyzed for reachability",
 	warningModuleBudgetExceeded:   "this repository has more modules than one claim scans; some are not analyzed for reachability",
+	warningCgoExcluded:            "a file only cgo excluded was not in the scanned graph, so no not_called is claimed for this module; any symbol findings from the finished scan are kept",
+	warningLinkOutsideCheckout:    "a link under this module or one of its local replace roots resolves outside the checkout, so a scan would read code outside this commit; this module is not analyzed for reachability",
 }
 
 // Scanner vocabulary for the scanner_worker.warning status fields, shared with

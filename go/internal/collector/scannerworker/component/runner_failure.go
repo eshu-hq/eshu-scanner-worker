@@ -15,11 +15,11 @@ import (
 )
 
 // defaultRetryAfterSeconds paces retries after a retryable analyzer
-// failure. The SDK contract rejects a retryable failure status with a zero
-// delay, so the runner must request one; the host applies
-// max(poll-interval, this) per attempt while the claim's attempt budget
-// lasts, and clamps the request to one hour, so a minute paces transient
-// source outages without retry-storming (#9591).
+// failure that carries no delay of its own. The SDK contract rejects a
+// retryable failure status with a zero delay, so the runner must request
+// one; the host applies max(poll-interval, this) per attempt while the
+// claim's attempt budget lasts, and clamps the request to one hour, so a
+// minute paces transient source outages without retry-storming (#9591).
 const defaultRetryAfterSeconds = 60
 
 // failureClass maps an analysis error to a bounded failure class for the
@@ -45,22 +45,29 @@ func failureState(err error) sdkcollector.ResultState {
 	return sdkcollector.ResultTerminal
 }
 
+// retryAfterSecondsFor names the delay a failure status asks the host for: a
+// retryable analyzer failure may carry its class's delay (the go_reachability
+// scan classes do); a retryable failure with none gets the default, because
+// the SDK rejects a retryable failure status with a zero delay (#9591). A
+// terminal failure carries no delay.
+func retryAfterSecondsFor(err error) int {
+	if failureState(err) != sdkcollector.ResultRetryable {
+		return 0
+	}
+	var failure scannerworker.AnalyzerFailure
+	if errors.As(err, &failure) && failure.RetryAfterSeconds() > 0 {
+		return failure.RetryAfterSeconds()
+	}
+	return defaultRetryAfterSeconds
+}
+
 // emitFailure emits a single-shot failure result for an analysis error.
 // No page envelope; see emitTerminal for why resumed calls omit it.
-// A retryable failure carries the default retry delay: the SDK rejects a
-// retryable failure status with a zero delay, so omitting it turns every
-// retryable failure into an invalid_result terminal (#9591). Terminal
-// failures carry no delay.
 func (r Runner) emitFailure(claim sdkcollector.Claim, observedAt time.Time, err error) error {
-	state := failureState(err)
-	retryAfter := 0
-	if state == sdkcollector.ResultRetryable {
-		retryAfter = defaultRetryAfterSeconds
-	}
-	return r.emit(claim, observedAt, state, nil, []sdkcollector.Status{{
+	return r.emit(claim, observedAt, failureState(err), nil, []sdkcollector.Status{{
 		Class:             sdkcollector.StatusFailure,
 		FailureClass:      failureClass(err),
-		RetryAfterSeconds: retryAfter,
+		RetryAfterSeconds: retryAfterSecondsFor(err),
 	}}, nil)
 }
 
@@ -77,9 +84,10 @@ func (r Runner) log(analyzer scannerworker.AnalyzerKind, observedAt time.Time, s
 
 // logFailure writes the stderr line for an analysis error. When the error
 // carries input-limit figures it adds exactly those three numeric keys. A
-// go_reachability failure adds its latency and any bounded reason. The record
-// is built from typed values only: no error text enters it.
-func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.Time, err error, latencyMS int) {
+// go_reachability failure adds its latency, the claim's attempt, and any
+// bounded reason, so an operator can read the retry policy's inputs off one
+// line. The record is built from typed values only: no error text enters it.
+func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.Time, err error, latencyMS, attempt int) {
 	var figures map[string]int64
 	reason := ""
 	var failure scannerworker.AnalyzerFailure
@@ -94,7 +102,7 @@ func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.
 		}
 	}
 	if analyzer == scannerworker.AnalyzerGoReachability {
-		figures = map[string]int64{"latency_ms": int64(latencyMS)}
+		figures = map[string]int64{"latency_ms": int64(latencyMS), "attempt": int64(attempt)}
 	}
 	r.logRecord(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err), reason, figures, nil)
 }

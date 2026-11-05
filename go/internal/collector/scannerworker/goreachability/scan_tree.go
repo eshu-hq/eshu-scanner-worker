@@ -66,9 +66,22 @@ const graphListFormat = `{{if not .Standard}}{{if .IgnoredGoFiles}}{{.Dir}}|{{jo
 // dependency whose files all import "C" builds to nothing, and its importers report
 // undefined symbols, with no text that names cgo: a real run on eshu-hq/eshu printed
 // only "undefined: tree_sitter.Node". So this asks the go command which of the graph's
-// excluded files import "C". go list runs no compiler and no repository code. It is
+// excluded files only cgo kept out. go list runs no compiler and no repository code. It is
 // only ever a better name for a failure, and on any error the failure keeps its name.
 func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string) bool {
+	excluded, err := s.graphCgoExcluded(ctx, dir, env)
+	return err == nil && excluded
+}
+
+// graphCgoExcluded is the one probe behind both cgo rules: it reports whether
+// at least one file in a non-standard package of the module's graph is in
+// IgnoredGoFiles under the scan environment (CGO_ENABLED=0) yet accepted once
+// cgo is on — excluded only by cgo. It runs under the caller's context, so the
+// module budget and the claim lease bound it exactly as they bound the scan.
+// A probe error is returned, never read as "no file excluded": on the clean
+// path the caller fails the module closed rather than emit not_called from a
+// graph it could not prove whole.
+func (s *ScanStage) graphCgoExcluded(ctx context.Context, dir string, env []string) (bool, error) {
 	cmd := exec.CommandContext(ctx, filepath.Join(s.config.Toolchain.GoRoot, "bin", "go"), "list", "-e", "-deps", "-f", graphListFormat, "./...") // #nosec G204 -- the seeded go with fixed arguments
 	cmd.Dir = dir
 	cmd.Env = env
@@ -77,7 +90,7 @@ func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string)
 	output := &boundedBuffer{limit: scanStderrLimit * 16}
 	cmd.Stdout = output
 	if err := cmd.Run(); err != nil {
-		return false
+		return false, err
 	}
 	for line := range strings.Lines(output.String()) {
 		packageDir, files, ok := strings.Cut(strings.TrimSpace(line), "|")
@@ -87,11 +100,11 @@ func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string)
 		for name := range strings.SplitSeq(files, ",") {
 			path := filepath.Join(packageDir, name)
 			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && needsCgo(path) {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 // skipForPackages applies the go command's pattern rule to one directory.
@@ -121,27 +134,135 @@ func replacesStayInCheckout(checkout string, replaces []string) bool {
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		if err != nil {
-			return false
-		}
-		relative, err := filepath.Rel(root, resolved)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		if err != nil || !pathInside(root, resolved) {
 			return false
 		}
 	}
 	return true
 }
 
-// needsCgo reports whether cgo is the only thing that kept a file out of the build: it
-// imports "C", and go/build accepts it once cgo is on. A `//go:build ignore` file or
-// another platform's file can import "C" too, and golang.org/x/sys/unix ships several,
-// so without this nearly any failed scan would read as cgo_required.
-func needsCgo(path string) bool {
-	if !importsCgo(path) {
+// pathInside reports whether a resolved path is the root or under it.
+func pathInside(root, resolved string) bool {
+	relative, err := filepath.Rel(root, resolved)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// errLinkOutsideCheckout stops a link walk at the first escaping link.
+var errLinkOutsideCheckout = errors.New("a link resolves outside the checkout")
+
+// linksStayInCheckout walks the module directory and every local replace root
+// without following links, and resolves every symlink it finds: measured, the
+// go command reads a linked .go file and a linked package directory from
+// outside the module, so a link that leaves the checkout would put code that
+// is not in this commit into the scan. A link that stays inside the checkout
+// names this same commit and is allowed; a dangling link is allowed, as a
+// missing replace target is, because the go command fails on it and reads
+// nothing. A nested module's subtree is skipped: it is checked when it is
+// scanned, and as a replace root when another module names it. The .git
+// directory is not commit content and the go command never reads it, so it is
+// skipped too. Any other walk or resolve error refuses, because the tree
+// could not be proven inside.
+func linksStayInCheckout(checkout string, module Module) bool {
+	root, err := filepath.EvalSymlinks(checkout)
+	if err != nil {
 		return false
 	}
+	roots := []string{filepath.Join(checkout, filepath.FromSlash(module.Dir))}
+	for _, target := range module.LocalReplaces {
+		roots = append(roots, filepath.Join(checkout, filepath.FromSlash(target)))
+	}
+	seen := make(map[string]bool, len(roots))
+	for _, raw := range roots {
+		resolved, err := filepath.EvalSymlinks(raw)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || !pathInside(root, resolved) {
+			return false
+		}
+		if seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return false
+		}
+		if !info.IsDir() {
+			continue
+		}
+		if err := walkLinksInside(root, resolved); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// walkLinksInside resolves every symlink under one resolved root.
+func walkLinksInside(checkoutRoot, root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(path)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !pathInside(checkoutRoot, resolved) {
+				return errLinkOutsideCheckout
+			}
+			return nil
+		}
+		if entry.IsDir() && path != root {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			if _, err := os.Lstat(filepath.Join(path, goModName)); err == nil {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+}
+
+// needsCgo reports whether cgo is the only thing that kept a file out of the
+// scanned graph: go/build accepts it for the pinned GOOS/GOARCH once cgo is
+// on, and with cgo off it is excluded — either because it imports "C"
+// (MatchFile reads only name and build constraints, so the import is checked
+// here) or because its constraints name the cgo tag. A `//go:build ignore`
+// file or another platform's file can import "C" too, and golang.org/x/sys/unix
+// ships several, so without the first arm nearly any graph would count; a
+// plain file is accepted with cgo off too, so without the second it would
+// count as well.
+func needsCgo(path string) bool {
+	withCgo := scanBuildContext(true)
+	match, err := withCgo.MatchFile(filepath.Dir(path), filepath.Base(path))
+	if err != nil || !match {
+		return false
+	}
+	if importsCgo(path) {
+		return true
+	}
+	withoutCgo := scanBuildContext(false)
+	matchOff, err := withoutCgo.MatchFile(filepath.Dir(path), filepath.Base(path))
+	return err == nil && !matchOff
+}
+
+// scanBuildContext is the build context of the scan configuration, with cgo
+// set as asked: a copy of build.Default pinned to this toolchain's GOOS and
+// GOARCH (the binary and the seeded toolchain ship for the same image), with
+// no build tags. CgoEnabled is set here, never read from the component's own
+// environment, which the refusing startup check keeps unset in production.
+// No tags beyond the defaults keeps the probe honest about custom-tag files:
+// they are a stated caveat of the scan configuration, never a cgo exclusion.
+func scanBuildContext(cgoEnabled bool) build.Context {
 	context := build.Default
-	context.GOOS, context.GOARCH, context.CgoEnabled = runtime.GOOS, runtime.GOARCH, true
+	context.GOOS, context.GOARCH, context.CgoEnabled = runtime.GOOS, runtime.GOARCH, cgoEnabled
+	context.BuildTags = nil
 	context.OpenFile = func(path string) (io.ReadCloser, error) {
 		file, err := os.Open(path) // #nosec G304 -- a regular file the walk found in this claim's private checkout or module cache
 		if err != nil {
@@ -152,8 +273,7 @@ func needsCgo(path string) bool {
 			io.Closer
 		}{io.LimitReader(file, goFileSniffBytes), file}, nil
 	}
-	match, err := context.MatchFile(filepath.Dir(path), filepath.Base(path))
-	return err == nil && match
+	return context
 }
 
 // importsCgo reports whether a file's head imports "C".

@@ -17,11 +17,18 @@
 // schema, folds every finding of one (advisory, module) pair to one answer, and
 // emits one vulnerability.go_call_reachability fact. A module that does not finish
 // yields a scanner_worker.warning and no reachability fact, so a failed scan can
-// never read as not_called. The child's environment is built from nothing, so the
+// never read as not_called. A finished scan whose graph lost a file only cgo
+// excluded keeps its symbol facts, withholds every not_called fact, and warns
+// cgo_excluded: the graph was not whole, so "nothing calls it" was not proven.
+// not_called means govulncheck's static call graph found no path under the scan
+// configuration GOOS=linux, GOARCH of the image, CGO_ENABLED=0, no build tags, no
+// test code; calls through reflect, unsafe, and function values are the documented
+// govulncheck caveats. The child's environment is built from nothing, so the
 // token never reaches it; repository code is type-checked and never executed. It
 // runs over a full checkout written once the tree has passed the budgets. A module
-// whose go.sum is a link, or whose local replace leaves the checkout, is not scanned:
-// the first would write outside the tree and the second would read outside it.
+// whose go.sum is a link, whose local replace leaves the checkout, or with any link
+// under the module or a replace root resolving outside the checkout, is not scanned:
+// the first would write outside the tree and the others would read outside it.
 //
 // Identity comes from the host. The repository id and commit are read from the
 // host_derived_target request key, whose scope must equal the claim scope
