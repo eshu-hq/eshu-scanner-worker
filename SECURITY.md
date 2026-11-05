@@ -161,6 +161,15 @@ same release.
 | `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.15` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
+Note on the factschema row: this component pins `v0.1.0-rc.13` while core
+validates at `v0.1.0-rc.15`. The two kinds this component emits —
+`vulnerability.go_module_evidence` (`vulnerability/v1/go_module_evidence.go`)
+and `scanner_worker.warning` (`scannerworker/v1/`) — are byte-identical
+between rc.13 and rc.15; the rc.14/rc.15 changes touch only the CVE and
+source-snapshot shapes, their schemas and fixtures, and docs, none of which
+this component emits. A re-pin rides the next factschema bump that touches an
+emitted kind.
+
 Re-pin rule: take the digests from the approved `release` run of a **push
 to `main`**, never from a tag run. eshu core's
 `scripts/verify-scanner-digest-pins.sh` resolves
