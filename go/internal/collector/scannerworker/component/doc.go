@@ -14,4 +14,11 @@
 // ClaimInput.ObservedAt the first page minted and the page cursor carries, so
 // stateless per-page re-analysis cannot move page boundaries
 // (eshu-hq/eshu-scanner-worker#33).
+//
+// go_reachability (eshu-hq/eshu-scanner-worker#47) is new here rather than
+// ported, so it has no core parity golden. It is the only component that
+// receives a credential: the host-minted token under host_github_app_token.
+// Every other component refuses that key as a bad config. An analyzer may attest
+// partial evidence, a freshness hint, and trusted deletion through
+// scannerworker.Completion; a nil Completion keeps the byte-identical default.
 package component

@@ -16,6 +16,7 @@ import (
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/imageanalyzer"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/sbomgenerator"
 )
@@ -126,6 +127,29 @@ func buildAnalyzer(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim
 	default:
 		return nil, fmt.Errorf("no component analyzer for %q", analyzer)
 	}
+}
+
+// buildGoReachability constructs the go_reachability analyzer from the
+// host-derived target and the host-minted token. Any target defect is a bad
+// config: the target can never be served, and retry cannot fix it. A target for
+// another scope is the same defect, so it fails here with no facts.
+func buildGoReachability(claim sdkcollector.Claim, config Config, options goreachability.Options) (scannerworker.Analyzer, error) {
+	if config.derivedTarget.ScopeID != claim.Scope.ID {
+		return nil, fmt.Errorf("%w: host_derived_target is for another scope", errBadTargetConfig)
+	}
+	if len(config.allowedCloneHosts) > 0 {
+		options.AllowedCloneHosts = config.allowedCloneHosts
+	}
+	analyzer, err := goreachability.NewAnalyzer(goreachability.Config{
+		CollectorInstanceID: claim.InstanceID,
+		Target:              config.derivedTarget,
+		Token:               config.hostToken,
+		Options:             options,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errBadTargetConfig, err)
+	}
+	return analyzer, nil
 }
 
 // errBadTargetConfig marks an operator target the component can never serve,

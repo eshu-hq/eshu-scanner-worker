@@ -201,8 +201,8 @@ func sourceFactKindAllowed(factKind string) bool {
 	if slices.Contains(chain.SBOMAttestationFactKinds(), factKind) {
 		return true
 	}
-	return factKind == chain.VulnerabilityOSPackageFactKind ||
-		factKind == chain.VulnerabilityWarningFactKind
+	_, ok := chain.VulnerabilityIntelligenceSchemaVersion(factKind)
+	return ok
 }
 
 func sourceFactSchemaVersion(factKind string) (string, bool) {
@@ -212,12 +212,7 @@ func sourceFactSchemaVersion(factKind string) (string, bool) {
 	if version, ok := chain.SBOMAttestationSchemaVersion(factKind); ok {
 		return version, true
 	}
-	switch factKind {
-	case chain.VulnerabilityOSPackageFactKind, chain.VulnerabilityWarningFactKind:
-		return chain.VulnerabilityIntelligenceSchemaVersion(factKind)
-	default:
-		return "", false
-	}
+	return chain.VulnerabilityIntelligenceSchemaVersion(factKind)
 }
 
 func reducerOwnedFactKind(factKind string) bool {

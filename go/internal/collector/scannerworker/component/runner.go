@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/ospackagevulnerability/osruntime"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
+	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/goreachability"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker/sbomgenerator"
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/factenvelope"
 )
@@ -40,8 +42,8 @@ const protocolVersion = sdkcollector.ProtocolVersionV1Alpha3
 // so every page stamps the same Generation.ObservedAt for the host
 // generation pin.
 type Runner struct {
-	// ComponentID is the binary identity (IDImage, IDSBOM, IDOSRuntime).
-	// The claim's component ID must equal it.
+	// ComponentID is the binary identity (IDImage, IDSBOM, IDOSRuntime,
+	// IDGoReachability). The claim's component ID must equal it.
 	ComponentID string
 	// Stdin carries one JSON request document.
 	Stdin io.Reader
@@ -67,6 +69,9 @@ type Runner struct {
 	// only: it lets a test inject an analyzer failure without a
 	// multi-gigabyte layer.
 	analyzer scannerworker.Analyzer
+	// goReachability overrides the go_reachability defaults. Test seam only: it
+	// lets a test fetch a loopback fixture over a transport production refuses.
+	goReachability goreachability.Options
 }
 
 // request mirrors the host wire document at the JSON level. Decoding is
@@ -140,7 +145,7 @@ func (r Runner) Run(ctx context.Context) error {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_claim_mismatch")
 		return r.emitTerminal(req.Claim, observedAt, "component_claim_mismatch")
 	}
-	config, err := parseConfig(req.Config)
+	config, err := parseConfigFor(analyzer, req.Config)
 	if err != nil {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_config")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_config")
@@ -152,7 +157,7 @@ func (r Runner) Run(ctx context.Context) error {
 		r.log(analyzer, observedAt, "terminal", 0, 0, 0, "component_bad_claim")
 		return r.emitTerminal(req.Claim, observedAt, "component_bad_claim")
 	}
-	executor, err := buildAnalyzer(analyzer, req.Claim, config, observedAt, r.snapshots, r.inventory)
+	executor, err := r.executorFor(analyzer, req.Claim, config, observedAt)
 	if err != nil {
 		class := "component_failed"
 		if errors.Is(err, errBadTargetConfig) {
@@ -174,7 +179,7 @@ func (r Runner) Run(ctx context.Context) error {
 	cancel()
 	latencyMS := int(time.Since(start).Milliseconds())
 	if err != nil {
-		r.logFailure(analyzer, observedAt, err)
+		r.logFailure(analyzer, observedAt, err, latencyMS)
 		return r.emitFailure(req.Claim, observedAt, err)
 	}
 	output := result.Output
@@ -217,22 +222,20 @@ func (r Runner) Run(ctx context.Context) error {
 		envelope.Cursor = formatCursor(index+1, observedAt)
 		envelope.More = true
 	}
+	frame := frameFor(result.Completion, index, len(wireFacts), latencyMS)
 	wire := sdkcollector.Result{
 		ProtocolVersion: protocolVersion,
-		State:           sdkcollector.ResultComplete,
+		State:           frame.state,
 		Claim:           req.Claim,
 		Generation: sdkcollector.Generation{
-			ID:            req.Claim.GenerationID,
-			ObservedAt:    observedAt,
-			FreshnessHint: "snapshot",
+			ID:              req.Claim.GenerationID,
+			ObservedAt:      observedAt,
+			FreshnessHint:   frame.freshnessHint,
+			TrustedDeletion: frame.trustedDeletion,
 		},
-		Facts: wireFacts,
-		Statuses: []sdkcollector.Status{{
-			Class:           sdkcollector.StatusComplete,
-			FactCount:       len(wireFacts),
-			SourceLatencyMS: latencyMS,
-		}},
-		Page: envelope,
+		Facts:    wireFacts,
+		Statuses: []sdkcollector.Status{frame.status},
+		Page:     envelope,
 	}
 	raw, err = json.Marshal(wire)
 	if err != nil {
@@ -242,8 +245,62 @@ func (r Runner) Run(ctx context.Context) error {
 	if _, err := io.Copy(r.Stdout, bytes.NewReader(raw)); err != nil {
 		return fmt.Errorf("write component result: %w", err)
 	}
-	r.log(analyzer, observedAt, "complete", index, len(wireFacts), len(output.Facts), "")
+	r.logRecord(analyzer, observedAt, frame.state, index, len(wireFacts), len(output.Facts), string(frame.status.FailureClass), "", frame.figures)
 	return nil
+}
+
+// executorFor constructs the analyzer for this call. go_reachability is built
+// here because it alone takes the host-minted token and the transport seam.
+func (r Runner) executorFor(analyzer scannerworker.AnalyzerKind, claim sdkcollector.Claim, config Config, now time.Time) (scannerworker.Analyzer, error) {
+	if analyzer == scannerworker.AnalyzerGoReachability {
+		return buildGoReachability(claim, config, r.goReachability)
+	}
+	return buildAnalyzer(analyzer, claim, config, now, r.snapshots, r.inventory)
+}
+
+// resultFrame is how one analysis maps onto the SDK result around its facts.
+type resultFrame struct {
+	state           sdkcollector.ResultState
+	status          sdkcollector.Status
+	freshnessHint   string
+	trustedDeletion bool
+	figures         map[string]int64
+}
+
+// frameFor maps an analyzer's attestation onto the result. A nil completion is
+// the default complete snapshot. The warning count rides the first page only,
+// because the host sums the statuses of every page of one claim. Every other
+// field is equal across pages, which the host generation pin requires.
+func frameFor(completion *scannerworker.Completion, page, facts, latencyMS int) resultFrame {
+	frame := resultFrame{
+		state:         sdkcollector.ResultComplete,
+		freshnessHint: "snapshot",
+		status: sdkcollector.Status{
+			Class:           sdkcollector.StatusComplete,
+			FactCount:       facts,
+			SourceLatencyMS: latencyMS,
+		},
+	}
+	if completion == nil {
+		return frame
+	}
+	frame.freshnessHint = completion.FreshnessHint
+	frame.trustedDeletion = completion.TrustedDeletion
+	frame.status.FailureClass = string(completion.FailureClass)
+	if page == 0 {
+		frame.status.WarningCount = completion.WarningCount
+	}
+	if completion.Partial {
+		frame.state = sdkcollector.ResultPartial
+		frame.status.Class = sdkcollector.StatusWarning
+		frame.status.Partial = true
+	}
+	frame.figures = maps.Clone(completion.Figures)
+	if frame.figures == nil {
+		frame.figures = map[string]int64{}
+	}
+	frame.figures["latency_ms"] = int64(latencyMS)
+	return frame
 }
 
 // clock returns the runner clock in UTC.
@@ -254,16 +311,27 @@ func (r Runner) clock() time.Time {
 	return time.Now().UTC()
 }
 
-// analyzeContext bounds one analysis by the analyzer resource timeout. The
-// host owns the claim lease; this only stops a runaway analyzer from
-// holding the call past its budget.
+// analyzeContext bounds one analysis by the analyzer resource timeout and by the
+// claim deadline, whichever comes first. The host owns the claim lease and kills
+// the process when it runs out. Stopping leaseStopMargin earlier stops an analyzer's
+// children in order and leaves time to emit a result. A deadline already inside the
+// margin is left to the host.
 func (r Runner) analyzeContext(ctx context.Context, input scannerworker.ClaimInput) (context.Context, context.CancelFunc) {
 	timeout := input.Limits.Timeout
+	if !input.LeaseExpiresAt.IsZero() {
+		remaining := input.LeaseExpiresAt.Sub(r.clock()) - leaseStopMargin
+		if remaining > 0 && (timeout <= 0 || remaining < timeout) {
+			timeout = remaining
+		}
+	}
 	if timeout <= 0 {
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, timeout)
 }
+
+// leaseStopMargin is how long before the claim deadline an analysis stops.
+const leaseStopMargin = 10 * time.Second
 
 // pageBound resolves the per-call page byte bound: the operator-narrowed
 // value when configured, else the stdout-derived default both sides mirror.

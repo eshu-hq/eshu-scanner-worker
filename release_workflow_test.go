@@ -28,7 +28,7 @@ func TestReleaseWorkflowContract(t *testing.T) {
 		}
 	}
 	required := []string{
-		"component: [image, sbom, osruntime]",
+		"component: [image, sbom, osruntime, go-reachability]",
 		"IMAGE_NAME: ${{ github.repository_owner }}/scanner-${{ matrix.component }}",
 		"target: scanner-${{ matrix.component }}",
 		"platforms: linux/amd64,linux/arm64",
@@ -128,13 +128,13 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	}
 }
 
-// TestDockerfileStagesMatchChartSeedCommand pins the three final stages and
+// TestDockerfileStagesMatchChartSeedCommand pins the four final stages and
 // the binary path the eshu chart's seed init container executes.
 func TestDockerfileStagesMatchChartSeedCommand(t *testing.T) {
 	t.Parallel()
 
 	text := readFile(t, "Dockerfile")
-	for _, name := range []string{"image", "sbom", "osruntime"} {
+	for _, name := range []string{"image", "sbom", "osruntime", "go-reachability"} {
 		for _, want := range []string{
 			"AS scanner-" + name + "\n",
 			"/usr/local/bin/eshu-scanner-component-" + name,

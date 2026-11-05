@@ -23,17 +23,57 @@ Instead:
 
 1. Use [GitHub private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) if enabled for this repository.
 2. If private reporting is unavailable, contact the maintainers privately before disclosure.
-3. Include the impact, reproduction steps, affected component (`image`, `sbom`, or `osruntime`), and any suggested mitigation.
+3. Include the impact, reproduction steps, affected component (`image`, `sbom`, `osruntime`, or `go-reachability`), and any suggested mitigation.
 
 The analyzers parse untrusted input: container rootfs metadata, image layer
-archives, RPM databases, and repository lockfiles. Resource-limit bypasses,
-parser crashes, path escapes, and credential leaks into emitted facts are in
-scope.
+archives, RPM databases, repository lockfiles, and repository checkouts.
+Resource-limit bypasses, parser crashes, path escapes, and credential leaks into
+emitted facts are in scope.
+
+`go-reachability` is the only component that receives a credential: a host-minted
+GitHub installation token for one claim. It never reads a GitHub App key. The
+token reaches git only through the fetch process environment, as an
+`http.extraHeader` scoped to the clone URL's origin, so a token on a command
+line, in the checkout, in a log, or in a fact is a vulnerability. git runs with a
+clean environment, no system or global config, no hooks, redirects off, maintenance
+off, and the `https` transport alone. Repository content is parsed, never executed.
+
+The token goes only to a canonical remote on an allowed host. The default is
+`github.com`. An operator can replace that list with the activation's
+`allowed_clone_hosts`; a host-derived target cannot. IP literals, ports, userinfo,
+and non-canonical paths are always refused, before any git process starts.
+
+Budgets hold before the damage. A fetch whose `.git` passes the byte budget is
+cancelled, and a stalled transfer stops after 60 seconds under 1,000 bytes per
+second. Every tree entry and blob counts against the file and byte budgets, excluded
+directories included, before any worktree byte exists. Stage A reads `go.mod` files
+from the object store and writes no worktree. Each claim reads at most 4,096 `go.mod`
+files, 4 MiB each and 64 MiB in all, and the fact budget stops the read at the first
+file that overruns it.
+
+The fetch runs under a guard that kills its process group when the component dies,
+including by SIGKILL, so `git-remote-https` cannot outlive the claim holding the token.
+Every other git call dies with the component through a parent-death signal. A later
+claim removes a killed run's workspace, and a kernel-held lock protects a live
+sibling's. What remains: between a kill and the guard's reaction, the helper still holds the
+token in `/proc/<pid>/environ`, readable only by the same user in the same pod. If the
+guard alone is killed, for example by the OOM killer, the helper runs until its
+transfer ends or stalls. A claim's workspace survives a container restart until the
+next claim on that volume, though it holds no credential.
+
+A symlink or submodule link named `go.mod`, or a `go.mod` whose path or declared text
+is not valid as identity, yields a typed warning naming it and a partial result. It
+never reads as a repository with no modules. The result still attests deletion,
+because every committed generation is the full snapshot of one commit and names what
+it could not observe. A committer who can replace a `go.mod` with a link can also
+delete its `require` lines; the defense is the named warning in readiness, not a
+size-dependent guard. A claim commits nothing on a checkout, auth, or budget failure,
+or when its module counts do not add up.
 
 ## Supply Chain
 
 `.github/workflows/release.yml` publishes
-`ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` for `linux/amd64` and
+`ghcr.io/eshu-hq/scanner-{image,sbom,osruntime,go-reachability}` for `linux/amd64` and
 `linux/arm64` with SLSA build provenance, a keyless cosign signature, and an
 SPDX SBOM attestation.
 
@@ -118,8 +158,17 @@ same release.
 | component manifest `0.1.0` (`component.Version`) | eshu core `compatibleCore: >=0.0.5 <0.2.0`, `scannercomponent.Version` `0.1.0` | `go/internal/collector/scannerworker/component/manifest.go`, `testdata/manifests` |
 | wire protocol `collector-sdk/v1alpha3` | eshu core extension host v1alpha3 pagination | `component.protocolVersion` (from eshu-sdk) |
 | `github.com/eshu-hq/eshu-sdk/collector` `v0.2.0-rc.3` | eshu core `go/go.mod` `v0.2.0-rc.3` | `go.mod` |
-| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
+| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.15` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
+
+Note on the factschema row: this component pins `v0.1.0-rc.13` while core
+validates at `v0.1.0-rc.15`. The two kinds this component emits —
+`vulnerability.go_module_evidence` (`vulnerability/v1/go_module_evidence.go`)
+and `scanner_worker.warning` (`scannerworker/v1/`) — are byte-identical
+between rc.13 and rc.15; the rc.14/rc.15 changes touch only the CVE and
+source-snapshot shapes, their schemas and fixtures, and docs, none of which
+this component emits. A re-pin rides the next factschema bump that touches an
+emitted kind.
 
 Re-pin rule: take the digests from the approved `release` run of a **push
 to `main`**, never from a tag run. eshu core's

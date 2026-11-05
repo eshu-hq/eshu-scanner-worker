@@ -8,6 +8,7 @@ require (
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/knqyf263/go-rpmdb v0.1.1
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8
+	golang.org/x/mod v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

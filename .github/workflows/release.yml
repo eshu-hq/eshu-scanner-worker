@@ -1,7 +1,7 @@
 name: release
 
-# Publishes the three scanner component images
-# (ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}) on every push to main and
+# Publishes the four scanner component images
+# (ghcr.io/eshu-hq/scanner-{image,sbom,osruntime,go-reachability}) on every push to main and
 # on every pushed version tag. Nothing runs on a pull request, and nothing
 # here deploys or re-pins eshu core: a person copies each digest from the job
 # summary into the eshu re-pin PR (scannercomponent manifest pins plus
@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [image, sbom, osruntime]
+        component: [image, sbom, osruntime, go-reachability]
     # The release environment requires the maintainer's approval and admits
     # only main and v* (SECURITY.md, "Repository settings"), so every run,
     # including each main push, waits for that approval before building.

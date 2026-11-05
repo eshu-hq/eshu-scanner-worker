@@ -1,6 +1,6 @@
-# Scanner component images: ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}.
+# Scanner component images: ghcr.io/eshu-hq/scanner-{image,sbom,osruntime,go-reachability}.
 #
-# One pure-Go build stage compiles the three scanner-component binaries
+# One pure-Go build stage compiles the four scanner-component binaries
 # (CGO_ENABLED=0: the RPM and SQLite readers are pure Go), reproducibly with
 # -trimpath and an empty build id. Each final stage carries exactly one
 # binary on a base with no shell and no package manager, at the path the
@@ -29,7 +29,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY go/ ./go/
-RUN for name in image sbom osruntime; do \
+RUN for name in image sbom osruntime go-reachability; do \
       CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -buildvcs=false \
         -ldflags="-s -w -buildid= -X github.com/eshu-hq/eshu-scanner-worker/go/internal/buildinfo.Version=${SCANNER_VERSION}" \
         -o "/out/eshu-scanner-component-${name}" "./go/cmd/scanner-component-${name}" || exit 1; \
@@ -49,3 +49,14 @@ FROM ${RUNTIME_IMAGE} AS scanner-osruntime
 COPY --from=build /out/eshu-scanner-component-osruntime /usr/local/bin/eshu-scanner-component-osruntime
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/eshu-scanner-component-osruntime"]
+
+# go-reachability needs git at run time, and this image does not provide it. The
+# chart seed step copies only this binary out; the binary then runs in the Eshu
+# worker container, whose image installs git. Its pinned toolchain is the Go
+# version of GO_IMAGE above, compiled in, so this stage needs no toolchain to
+# compare go.mod directives. Stage B (#48) must settle where go and govulncheck
+# live: the seed contract delivers neither to the worker container today.
+FROM ${RUNTIME_IMAGE} AS scanner-go-reachability
+COPY --from=build /out/eshu-scanner-component-go-reachability /usr/local/bin/eshu-scanner-component-go-reachability
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/eshu-scanner-component-go-reachability"]

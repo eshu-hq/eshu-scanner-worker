@@ -82,6 +82,29 @@ Component lane, first slice (os_package_extraction):
   `ghcr.io/eshu-hq/scanner-{image,sbom,osruntime}` packages are linked to
   eshu-hq/eshu today, so this repository needs write access to them (package
   settings, "Manage Actions access") or its push fails.
+- Go reachability, stage A (#47, part of eshu-hq/eshu#10002): new work, not a
+  port, so it has no core parity golden. `scannerworker/goreachability` fetches
+  the claimed commit, reads each `go.mod`, and emits
+  `vulnerability.go_module_evidence`; `go/cmd/scanner-component-go-reachability`
+  and the `scanner-go-reachability` image follow the other components. Every
+  module-bearing result stays partial until stage B (#48) wires the `Stage` seam, so
+  `eshu_dp_component_extension_results_total{state="partial"}` is 100 percent for
+  module-bearing claims until then. Every committed generation is the full snapshot of
+  one commit and attests deletion: a module it could not read is named by a
+  `scanner_worker.warning` in that generation, and its earlier evidence leaves truth. It
+  takes the repository id, commit, and clone URL from the host's
+  `host_derived_target` request key and the token from `host_github_app_token`,
+  and refuses static targets. The token reaches only `github.com` unless the
+  activation sets `allowed_clone_hosts`. Stage A writes no worktree: it reads each
+  `go.mod` from the object store after holding the whole tree to the budgets. The
+  chart's `tmp` volume still needs a `sizeLimit` above the 2 GiB input budget, 8 GiB
+  by ruling, as the last line of defense. Core admission is owed by eshu#10002 child C2, which
+  must plan `go-reachability://repository:r_<8 hex>` scopes, deliver that key,
+  select a token installation for derived scopes, pin the image digest, and
+  reproduce `testdata/manifests/go_reachability.manifest.yaml`. The
+  binary runs in the Eshu worker container after the seed copy, so it uses that
+  image's git; the seed contract delivers no Go toolchain or govulncheck there,
+  which stage B must settle.
 - Hostile-input proof: `component/hostile_test.go` (the #9380 full-range
   run for all three analyzers: 50,000 facts each at the 4,128,768-byte
   bound, reassembled byte-identical to one direct analysis); repository_url

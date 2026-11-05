@@ -71,16 +71,19 @@ func (r Runner) emitFailure(claim sdkcollector.Claim, observedAt time.Time, err 
 // clock of this call, so an operator can confirm from stderr alone that every
 // page of one claim shares one observed_at.
 func (r Runner) log(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class string) {
-	r.logRecord(analyzer, observedAt, state, page, facts, total, class, nil)
+	r.logRecord(analyzer, observedAt, state, page, facts, total, class, "", nil)
 }
 
 // logFailure writes the stderr line for an analysis error. When the error
-// carries input-limit figures it adds exactly those three numeric keys. The
-// record is built from typed values only: no error text enters it.
-func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.Time, err error) {
+// carries input-limit figures it adds exactly those three numeric keys. A
+// go_reachability failure adds its latency and any bounded reason. The record
+// is built from typed values only: no error text enters it.
+func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.Time, err error, latencyMS int) {
 	var figures map[string]int64
+	reason := ""
 	var failure scannerworker.AnalyzerFailure
 	if errors.As(err, &failure) {
+		reason = failure.Reason()
 		if detail, ok := failure.InputLimit(); ok {
 			figures = map[string]int64{
 				"inflated_bytes":   detail.InflatedBytes,
@@ -89,10 +92,13 @@ func (r Runner) logFailure(analyzer scannerworker.AnalyzerKind, observedAt time.
 			}
 		}
 	}
-	r.logRecord(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err), figures)
+	if analyzer == scannerworker.AnalyzerGoReachability {
+		figures = map[string]int64{"latency_ms": int64(latencyMS)}
+	}
+	r.logRecord(analyzer, observedAt, failureState(err), 0, 0, 0, failureClass(err), reason, figures)
 }
 
-func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class string, figures map[string]int64) {
+func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.Time, state sdkcollector.ResultState, page, facts, total int, class, reason string, figures map[string]int64) {
 	if r.Stderr == nil {
 		return
 	}
@@ -108,6 +114,9 @@ func (r Runner) logRecord(analyzer scannerworker.AnalyzerKind, observedAt time.T
 	}
 	if class != "" {
 		record["failure_class"] = class
+	}
+	if reason != "" {
+		record["failure_reason"] = reason
 	}
 	for key, value := range figures {
 		record[key] = value

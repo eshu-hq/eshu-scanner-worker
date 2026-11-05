@@ -42,6 +42,12 @@ const (
 	// VulnerabilityOSPackageFactKind identifies one installed OS package
 	// observation.
 	VulnerabilityOSPackageFactKind = factschema.FactKindVulnerabilityOSPackage
+	// VulnerabilityGoModuleEvidenceFactKind identifies one go.mod requirement
+	// observed in a repository at one commit.
+	VulnerabilityGoModuleEvidenceFactKind = factschema.FactKindVulnerabilityGoModuleEvidence
+	// VulnerabilityGoCallReachabilityFactKind identifies one govulncheck
+	// reachability result folded per advisory and module.
+	VulnerabilityGoCallReachabilityFactKind = factschema.FactKindVulnerabilityGoCallReachability
 	// VulnerabilityWarningFactKind identifies non-fatal vulnerability source
 	// collection or normalization warnings. The SDK declares no constant for
 	// it (the kind stays untyped there), so the literal is pinned here.
@@ -81,7 +87,8 @@ func SBOMAttestationSchemaVersion(factKind string) (string, bool) {
 // vulnerability-intelligence kinds the scanner analyzers emit.
 func VulnerabilityIntelligenceSchemaVersion(factKind string) (string, bool) {
 	switch factKind {
-	case VulnerabilityOSPackageFactKind, VulnerabilityWarningFactKind:
+	case VulnerabilityOSPackageFactKind, VulnerabilityWarningFactKind,
+		VulnerabilityGoModuleEvidenceFactKind, VulnerabilityGoCallReachabilityFactKind:
 		return VulnerabilityIntelligenceSchemaVersionV1, true
 	default:
 		return "", false
