@@ -49,8 +49,8 @@ func (s StageInput) Envelope(kind, stableKey, recordID string, payload map[strin
 	return emitContext{input: s.Claim, sourceURI: s.SourceURI}.envelope(kind, stableKey, recordID, payload)
 }
 
-// ModuleFailure is one module stage B could not analyze. Its evidence stays,
-// the analyzer adds a warning fact, and the result is partial.
+// ModuleFailure is one module stage B could not analyze for a terminal reason. Its
+// evidence stays, the analyzer adds a warning fact, and the result is partial.
 type ModuleFailure struct {
 	// RelativePath names the go.mod. It reaches the warning fact, never a label.
 	RelativePath string
@@ -60,10 +60,9 @@ type ModuleFailure struct {
 	Class scannerworker.FailureClass
 }
 
-// StageOutcome is what stage B reports. The analyzer attests deletion only when
-// ModulesAnalyzed equals every module the tree holds, eligible or not, and Failed
-// is empty. A module above the pin or with an unusable go.mod is never eligible, so
-// any such module keeps the result partial and untrusted.
+// StageOutcome is what stage B reports. Every eligible module must be counted once
+// in ModulesAnalyzed or Failed, or the analyzer's self-check fails the claim. A
+// retryable failure must return an error instead: it never commits.
 type StageOutcome struct {
 	// Facts holds the stage B source facts.
 	Facts []facts.Envelope

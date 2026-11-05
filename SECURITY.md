@@ -62,8 +62,13 @@ transfer ends or stalls. A claim's workspace survives a container restart until 
 next claim on that volume, though it holds no credential.
 
 A symlink or submodule link named `go.mod`, or a `go.mod` whose path or declared text
-is not valid as identity, yields a typed warning and a partial, untrusted result. It
-never reads as a repository with no modules, so it cannot earn a deletion.
+is not valid as identity, yields a typed warning naming it and a partial result. It
+never reads as a repository with no modules. The result still attests deletion,
+because every committed generation is the full snapshot of one commit and names what
+it could not observe. A committer who can replace a `go.mod` with a link can also
+delete its `require` lines; the defense is the named warning in readiness, not a
+size-dependent guard. A claim commits nothing on a checkout, auth, or budget failure,
+or when its module counts do not add up.
 
 ## Supply Chain
 
@@ -153,7 +158,7 @@ same release.
 | component manifest `0.1.0` (`component.Version`) | eshu core `compatibleCore: >=0.0.5 <0.2.0`, `scannercomponent.Version` `0.1.0` | `go/internal/collector/scannerworker/component/manifest.go`, `testdata/manifests` |
 | wire protocol `collector-sdk/v1alpha3` | eshu core extension host v1alpha3 pagination | `component.protocolVersion` (from eshu-sdk) |
 | `github.com/eshu-hq/eshu-sdk/collector` `v0.2.0-rc.3` | eshu core `go/go.mod` `v0.2.0-rc.3` | `go.mod` |
-| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.12` | `go.mod` |
+| `github.com/eshu-hq/eshu-sdk/factschema` `v0.1.0-rc.13` | eshu core `go/go.mod` `v0.1.0-rc.15` | `go.mod` |
 | image digests from this repository's `release` workflow | eshu core `scannercomponent` manifest pins and `Scanner-Publish-Repo` | eshu re-pin PR (`eshu-hq/eshu#8878` box 10) |
 
 Re-pin rule: take the digests from the approved `release` run of a **push

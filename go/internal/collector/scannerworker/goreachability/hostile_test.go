@@ -184,10 +184,10 @@ func TestFileBudgetCountsExcludedDirectories(t *testing.T) {
 	wantFailure(t, err, scannerworker.FailureClassFileLimitExceeded, false)
 }
 
-// TestNonRegularGoModIsPartialAndUntrusted is the F3 regression: a go.mod that is
-// a symlink returned no_go_modules, complete, and attested deletion, though the go
-// command follows the link and the module still builds.
-func TestNonRegularGoModIsPartialAndUntrusted(t *testing.T) {
+// TestNonRegularGoModIsPartialAndNamed is the F3 regression: a go.mod that is a
+// symlink returned no_go_modules and complete, though the go command follows the link
+// and the module still builds. It now counts as a module named by a warning.
+func TestNonRegularGoModIsPartialAndNamed(t *testing.T) {
 	t.Parallel()
 
 	for name, link := range map[string]string{"inside": "gomod.real", "outside": "/etc/passwd", "dangling": "missing"} {
@@ -209,7 +209,7 @@ func TestNonRegularGoModIsPartialAndUntrusted(t *testing.T) {
 				t.Fatalf("warnings = %v, want the typed warning and never no_go_modules", got)
 			}
 			c := result.Completion
-			if !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+			if !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 				t.Fatalf("completion = %+v", c)
 			}
 			if got := evidenceOf(result.Output); len(got) != 0 {
@@ -246,7 +246,7 @@ func TestHostileStringsNeverReachFacts(t *testing.T) {
 				t.Fatalf("warnings = %v", got)
 			}
 			c := result.Completion
-			if !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+			if !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 				t.Fatalf("completion = %+v", c)
 			}
 			if len(stage.input.Modules) != 0 {
@@ -342,7 +342,7 @@ func TestInvalidUTF8DirectoriesDoNotCollide(t *testing.T) {
 		}
 		keys[fact.StableFactKey] = true
 	}
-	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 4 {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 4 {
 		t.Fatalf("completion = %+v", c)
 	}
 }
@@ -389,7 +389,7 @@ func TestCraftedTreePathsAreClassifiedWithoutTouchingDisk(t *testing.T) {
 
 // TestDuplicateTreeEntriesCannotShareAKey covers a hand-built tree naming go.mod
 // twice with different content. Two facts would share a stable key and the host would
-// keep one silently, so the path is unusable and the result stays untrusted.
+// keep one silently, so the path is unusable and one warning names it.
 func TestDuplicateTreeEntriesCannotShareAKey(t *testing.T) {
 	t.Parallel()
 
@@ -407,7 +407,7 @@ func TestDuplicateTreeEntriesCannotShareAKey(t *testing.T) {
 	if got := evidenceOf(result.Output); len(got) != 0 {
 		t.Fatalf("evidence = %v", got)
 	}
-	if c := result.Completion; !c.Partial || c.TrustedDeletion {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 1 {
 		t.Fatalf("completion = %+v", c)
 	}
 }

@@ -33,7 +33,7 @@ type Options struct {
 	// TempRoot overrides where checkouts live. Empty means the system temp dir.
 	TempRoot string
 	// Stage is the reachability analysis after module evidence. Nil means Stage A
-	// alone, which never attests a module-bearing result as complete.
+	// alone, whose module-bearing results are always partial.
 	Stage Stage
 	// AllowedCloneHosts is the operator's allowed_clone_hosts. Empty means
 	// github.com alone. It replaces the default rather than adding to it.
@@ -183,6 +183,10 @@ type moduleRead struct {
 	eligible     []Module
 	requirements int
 	invalidPaths int
+	// parsed counts modules whose go.mod parsed, with evidence or with no requires.
+	parsed int
+	// unread counts modules with no evidence because their go.mod could not be used.
+	unread       int
 	failureClass scannerworker.FailureClass
 }
 
@@ -195,7 +199,7 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 	var read moduleRead
 	maxFacts := emit.input.Limits.MaxFacts
 	warn := func(reason string, class scannerworker.FailureClass, relativePath string) {
-		read.warnings = append(read.warnings, emit.warningFact(reason, class, relativePath, warningDetails[reason]))
+		read.warnings = append(read.warnings, emit.warningFact(reason, relativePath))
 		if read.failureClass != scannerworker.FailureClassToolchainUnsupported {
 			read.failureClass = class
 		}
@@ -206,13 +210,16 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		}
 		switch entry.state {
 		case goModOversized:
+			read.unread++
 			warn(warningGoModTooLarge, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
 			continue
 		case goModNotRegular:
+			read.unread++
 			warn(warningGoModNotRegular, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
 			continue
 		case goModInvalidPath:
 			read.invalidPaths++
+			read.unread++
 			warn(warningGoModInvalidPath, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
 			continue
 		}
@@ -226,6 +233,7 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		}
 		module, err := parseGoMod(entry.relativePath, body)
 		if err != nil {
+			read.unread++
 			warn(warningGoModParseFailed, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
 			continue
 		}
@@ -241,6 +249,7 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		for _, item := range module.requirements {
 			read.facts = append(read.facts, emit.evidenceFact(module, item))
 		}
+		read.parsed++
 		read.requirements += len(module.requirements)
 		if !unsupported && module.invalidPaths == 0 {
 			read.eligible = append(read.eligible, Module{RelativePath: module.relativePath, Dir: module.dir, ModulePath: module.modulePath})
@@ -249,16 +258,24 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 	return read, nil
 }
 
-// finish assembles the output and decides the attestation. A result is complete
-// and trusted only when every module's reachability run finished cleanly. A
-// repository with no module meets that with nothing to analyze, so its stale
-// evidence can retract. Anything else stays partial and untrusted, so it cannot
-// retract earlier reachability or read as not_called.
+// finish assembles the output and decides the flags. Every committed generation is
+// the full snapshot of one commit: a unit the component could not observe is named by
+// a warning in the same generation, so the omission is never silent and the component
+// attests TrustedDeletion on every commit. A module with an unusable go.mod, or whose
+// stage run failed, leaves its earlier evidence behind with the prior generation and
+// reads as missing evidence, because that evidence described another commit. Partial
+// is telemetry and readiness only; it never decides supersession. What cannot meet
+// this rule never commits: a stage returns a retryable class as an error, and a count
+// that does not add up fails terminal here.
 func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, outcome StageOutcome, maxFacts, staleRemoved int) (scannerworker.AnalyzerResult, error) {
+	if err := a.selfCheck(modulesTotal, read, outcome); err != nil {
+		return scannerworker.AnalyzerResult{}, err
+	}
 	failureClass := read.failureClass
+	omitted := len(read.warnings) > 0 || len(outcome.Failed) > 0
 	warnings := read.warnings
 	for _, failed := range outcome.Failed {
-		warnings = append(warnings, emit.warningFact(failed.Reason, failed.Class, failed.RelativePath, "this module was not analyzed for reachability"))
+		warnings = append(warnings, emit.warningFact(failed.Reason, failed.RelativePath))
 		if failureClass != scannerworker.FailureClassToolchainUnsupported {
 			failureClass = failed.Class
 		}
@@ -269,22 +286,21 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 		if modulesTotal > 0 {
 			reason = warningNoRequirements
 		}
-		warnings = append(warnings, emit.warningFact(reason, "", "", warningDetails[reason]))
+		warnings = append(warnings, emit.warningFact(reason, ""))
 	}
 	output = append(output, warnings...)
 	if len(output) > maxFacts {
 		return scannerworker.AnalyzerResult{}, factLimitFailure()
 	}
-	allAnalyzed := a.stage != nil && outcome.ModulesAnalyzed == modulesTotal && len(outcome.Failed) == 0
-	trusted := modulesTotal == 0 || allAnalyzed
+	partial := modulesTotal > 0 && (a.stage == nil || omitted)
 	return scannerworker.AnalyzerResult{
 		Output: scannerworker.FactOutput{TargetCount: 1, ResultCount: len(output), Facts: output},
 		Completion: &scannerworker.Completion{
-			Partial:         !trusted,
+			Partial:         partial,
 			WarningCount:    len(warnings),
 			FailureClass:    failureClass,
 			FreshnessHint:   freshnessHint(emit.commitSHA, a.version, outcome.VulnDBLastModified, a.toolchain),
-			TrustedDeletion: trusted,
+			TrustedDeletion: true,
 			Figures: map[string]int64{
 				"modules_total":      int64(modulesTotal),
 				"modules_analyzed":   int64(outcome.ModulesAnalyzed),
@@ -295,6 +311,21 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 			},
 		},
 	}, nil
+}
+
+// selfCheck proves the snapshot rule from the counts: every module is either parsed or
+// named as unread, and every eligible module was analyzed or failed. This exact check
+// stands in for the store's size-ratio guard, which the attestation bypasses. A
+// violation never commits.
+func (a *Analyzer) selfCheck(modulesTotal int, read moduleRead, outcome StageOutcome) error {
+	balanced := modulesTotal == read.parsed+read.unread
+	if a.stage != nil && len(read.eligible) != outcome.ModulesAnalyzed+len(outcome.Failed) {
+		balanced = false
+	}
+	if balanced {
+		return nil
+	}
+	return scannerworker.NewTerminalAnalyzerFailure(scannerworker.FailureClassSelfCheckFailed, scannerworker.ResourceUsage{}, nil)
 }
 
 // freshnessHint hashes the ruled tuple, so an unchanged tuple is a host-side

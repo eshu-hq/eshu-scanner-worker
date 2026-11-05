@@ -200,7 +200,7 @@ func TestStableKeyFollowsTheRulingTuple(t *testing.T) {
 
 // TestToolchainDirectiveAboveThePinIsTerminalForTheGeneration covers go and
 // toolchain directives: the module evidence stays, one warning names the
-// module, and the result is partial with no deletion attestation.
+// module, and the result is partial and still attests deletion.
 func TestToolchainDirectiveAboveThePinIsTerminalForTheGeneration(t *testing.T) {
 	t.Parallel()
 
@@ -225,7 +225,7 @@ func TestToolchainDirectiveAboveThePinIsTerminalForTheGeneration(t *testing.T) {
 				t.Fatalf("warnings = %v", got)
 			}
 			c := result.Completion
-			if !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassToolchainUnsupported || c.WarningCount != 1 {
+			if !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassToolchainUnsupported || c.WarningCount != 1 {
 				t.Fatalf("completion = %+v", c)
 			}
 		})
@@ -263,7 +263,7 @@ func TestMalformedGoModWarnsWithoutItsText(t *testing.T) {
 	if got := evidenceOf(result.Output); !slices.Equal(got, []string{"go.mod m.test/a v1.0.0"}) {
 		t.Fatalf("evidence = %v", got)
 	}
-	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassToolchainUnsupported {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassToolchainUnsupported {
 		t.Fatalf("completion = %+v, want toolchain_unsupported to win", c)
 	}
 	for _, fact := range result.Output.Facts {

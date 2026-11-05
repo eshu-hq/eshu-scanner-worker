@@ -32,11 +32,23 @@ var warningDetails = map[string]string{
 	warningToolchainUnsupported: "a go or toolchain directive is above the pinned toolchain; this module is not analyzed for reachability",
 	warningGoModParseFailed:     "go.mod did not parse; no module evidence for this file",
 	warningGoModTooLarge:        "go.mod is above the read bound; no module evidence for this file",
-	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and this result attests nothing about it",
+	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
 	warningGoModInvalidPath:     "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
 	warningNoGoModules:          "no go.mod at this commit outside excluded directories",
 	warningNoRequirements:       "no go.mod at this commit declares a requirement",
 }
+
+// Scanner vocabulary for the scanner_worker.warning status fields, shared with
+// the image analyzer. A reason that only reports an empty repository is a finished
+// scan; every other reason left something unscanned.
+const (
+	warningAnalyzer           = "go_reachability"
+	warningClassConstant      = "scanner_worker_warning"
+	analysisStatusCompleted   = "completed"
+	analysisStatusNotScanned  = "not_scanned"
+	coverageStatusScanned     = "scanned"
+	coverageStatusUnsupported = "unsupported"
+)
 
 // emitContext is the claim-owned identity every fact of one analysis carries.
 type emitContext struct {
@@ -80,25 +92,40 @@ func (c emitContext) evidenceFact(module goModule, item requirement) facts.Envel
 	return c.envelope(chain.VulnerabilityGoModuleEvidenceFactKind, key, record, payload)
 }
 
-// warningFact builds one vulnerability.warning fact for a reason and optional
-// module path.
-func (c emitContext) warningFact(reason string, class scannerworker.FailureClass, relativePath, detail string) facts.Envelope {
-	key := facts.StableID(chain.VulnerabilityWarningFactKind, map[string]any{
+// warningFact builds one scanner_worker.warning fact, the kind readiness reads. The
+// class goes in reason; warning_class stays the constant every producer of this kind
+// writes. A blank relative path covers the whole repository, so the key is left out.
+//
+// repository_id and relative_path are written as JSON keys: the pinned factschema has
+// no typed field for them, and its schema admits unknown keys.
+func (c emitContext) warningFact(reason, relativePath string) facts.Envelope {
+	key := facts.StableID(facts.ScannerWorkerWarningFactKind, map[string]any{
+		"analyzer":      warningAnalyzer,
 		"repository_id": c.repositoryID,
-		"reason":        reason,
 		"relative_path": relativePath,
+		"reason":        reason,
 	})
+	analysisStatus, coverageStatus := analysisStatusNotScanned, coverageStatusUnsupported
+	if reason == warningNoGoModules || reason == warningNoRequirements {
+		analysisStatus, coverageStatus = analysisStatusCompleted, coverageStatusScanned
+	}
 	payload := map[string]any{
 		"collector_instance_id": c.instanceID,
-		"collector_kind":        string(scope.CollectorScannerWorker),
+		"analyzer":              warningAnalyzer,
+		"target_kind":           string(c.input.Target.Kind),
+		"target_locator_hash":   c.input.Target.LocatorHash,
+		"reason":                reason,
+		"warning_class":         warningClassConstant,
+		"analysis_status":       analysisStatus,
+		"coverage_status":       coverageStatus,
 		"repository_id":         c.repositoryID,
 		"source_commit_sha":     c.commitSHA,
-		"reason":                reason,
-		"relative_path":         relativePath,
-		"detail":                detail,
+		"detail":                warningDetails[reason],
 	}
-	putNonEmpty(payload, map[string]string{"failure_class": string(class)})
-	return c.envelope(chain.VulnerabilityWarningFactKind, key, reason+"#"+relativePath, payload)
+	putNonEmpty(payload, map[string]string{"relative_path": relativePath})
+	envelope := c.envelope(facts.ScannerWorkerWarningFactKind, key, reason+"#"+relativePath, payload)
+	envelope.SchemaVersion = facts.ScannerWorkerSchemaVersionV1
+	return envelope
 }
 
 func (c emitContext) envelope(kind, stableKey, recordID string, payload map[string]any) facts.Envelope {

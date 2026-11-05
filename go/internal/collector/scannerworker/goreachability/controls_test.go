@@ -87,7 +87,7 @@ func TestNoHooksDirectoryExists(t *testing.T) {
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	checked := false
-	stage := &recordingStage{t: t, inspect: func(input StageInput) {
+	stage := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1}, inspect: func(input StageInput) {
 		checked = true
 		entries, err := os.ReadDir(filepath.Join(input.CheckoutDir, ".git", "hooks"))
 		if err == nil && len(entries) > 0 {

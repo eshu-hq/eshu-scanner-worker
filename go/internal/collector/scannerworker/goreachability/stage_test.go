@@ -39,16 +39,17 @@ func symlinkRepo(t *testing.T) (string, string) {
 	return url, fixtureGit(t, root, "rev-parse", "HEAD")
 }
 
-// TestWithoutStageBAModuleResultIsNeverComplete pins the ruling for the Stage A
-// release: no govulncheck ran, so nothing attests reachability or deletion.
+// TestWithoutStageBAModuleResultIsNeverComplete pins the Stage A row of the flag
+// table: no govulncheck ran, so the result is partial, and it still attests deletion
+// because it is the full snapshot of one commit.
 func TestWithoutStageBAModuleResultIsNeverComplete(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], nil))
 	c := result.Completion
-	if c == nil || !c.Partial || c.TrustedDeletion || c.FailureClass != "" || c.WarningCount != 0 {
-		t.Fatalf("completion = %+v, want partial, untrusted, no failure class, no warning", c)
+	if c == nil || !c.Partial || !c.TrustedDeletion || c.FailureClass != "" || c.WarningCount != 0 {
+		t.Fatalf("completion = %+v, want partial, attesting, no failure class, no warning", c)
 	}
 	if c.Figures["modules_total"] != 1 || c.Figures["modules_analyzed"] != 0 || c.Figures["requirements_total"] != 1 || c.Figures["warnings_total"] != 0 {
 		t.Fatalf("figures = %v", c.Figures)
@@ -96,9 +97,9 @@ func TestStageSeamReceivesEligibleModulesAndDecidesTheAttestation(t *testing.T) 
 	}
 }
 
-// TestStageExcludesToolchainUnsupportedModulesAndNeverAttests proves a module
-// above the pin is never handed to stage B and blocks the attestation.
-func TestStageExcludesToolchainUnsupportedModulesAndNeverAttests(t *testing.T) {
+// TestStageExcludesToolchainUnsupportedModules proves a module above the pin is never
+// handed to stage B and keeps the result partial.
+func TestStageExcludesToolchainUnsupportedModules(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{
@@ -110,34 +111,81 @@ func TestStageExcludesToolchainUnsupportedModulesAndNeverAttests(t *testing.T) {
 	if len(stage.input.Modules) != 1 || stage.input.Modules[0].RelativePath != "go.mod" {
 		t.Fatalf("stage modules = %+v", stage.input.Modules)
 	}
-	if c := result.Completion; !c.Partial || c.TrustedDeletion {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion {
 		t.Fatalf("completion = %+v", c)
 	}
 }
 
-// TestStageShortOrFailedRunsNeverAttest covers a stage that analyzed fewer
-// modules than it was given and one that reported a failed module.
-func TestStageShortOrFailedRunsNeverAttest(t *testing.T) {
+// TestStageFailureCommitsNamedAndSupersedes is the commit-or-nothing row: a module
+// whose stage failed gets a warning and no reachability, the result is partial, and
+// it still attests deletion, so the module's old verdict leaves truth instead of
+// being carried forward.
+func TestStageFailureCommitsNamedAndSupersedes(t *testing.T) {
+	t.Parallel()
+
+	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
+	stage := &recordingStage{t: t, outcome: StageOutcome{Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}}}}
+	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+		t.Fatalf("completion = %+v", c)
+	}
+	if got := warningsOf(result.Output); !slices.Equal(got, []string{"analysis_failed go.mod"}) {
+		t.Fatalf("warnings = %v", got)
+	}
+}
+
+// TestSelfCheckRefusesCountsThatDoNotAddUp seeds each violation. A stage that loses a
+// module, or counts one twice, must fail terminal rather than commit a snapshot that
+// silently omits it.
+func TestSelfCheckRefusesCountsThatDoNotAddUp(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	for name, outcome := range map[string]StageOutcome{
-		"short":  {ModulesAnalyzed: 0},
-		"failed": {ModulesAnalyzed: 1, Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}}},
+		"module lost":    {},
+		"counted twice":  {ModulesAnalyzed: 2},
+		"failed and run": {ModulesAnalyzed: 1, Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}}},
 	} {
 		stage := &recordingStage{t: t, outcome: outcome}
-		result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
-		if c := result.Completion; !c.Partial || c.TrustedDeletion {
-			t.Errorf("%s: completion = %+v, want partial and untrusted", name, c)
+		analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage })
+		result, err := analyzer.Analyze(context.Background(), testInput(t))
+		wantFailure(t, err, scannerworker.FailureClassSelfCheckFailed, false)
+		if len(result.Output.Facts) != 0 {
+			t.Errorf("%s: facts = %d, want none", name, len(result.Output.Facts))
 		}
-		if name == "failed" {
-			if got := warningsOf(result.Output); !slices.Equal(got, []string{"analysis_failed go.mod"}) {
-				t.Errorf("failed: warnings = %v", got)
-			}
-			if result.Completion.FailureClass != scannerworker.FailureClassAnalysisFailed {
-				t.Errorf("failed: class = %q", result.Completion.FailureClass)
-			}
-		}
+	}
+}
+
+// TestSelfCheckRefusesAModuleTheReadLost seeds the first balance directly, because no
+// tree reaches it: a go.mod in the manifest that the read neither parsed nor named.
+func TestSelfCheckRefusesAModuleTheReadLost(t *testing.T) {
+	t.Parallel()
+
+	analyzer := &Analyzer{}
+	if err := analyzer.selfCheck(1, moduleRead{}, StageOutcome{}); err == nil {
+		t.Fatal("selfCheck(lost module) error = nil")
+	} else {
+		wantFailure(t, err, scannerworker.FailureClassSelfCheckFailed, false)
+	}
+	if err := analyzer.selfCheck(2, moduleRead{parsed: 1, unread: 1}, StageOutcome{}); err != nil {
+		t.Fatalf("selfCheck(balanced) error = %v", err)
+	}
+}
+
+// TestSelfCheckCountsUnreadModules proves the first balance over a real tree: each
+// unread go.mod reason counts as a module, and the result still commits.
+func TestSelfCheckCountsUnreadModules(t *testing.T) {
+	t.Parallel()
+
+	url, shas := fixtureRepo(t, map[string]string{
+		"go.mod":     goModV1,
+		"bad/go.mod": "module m.test/bad\n\nNOT A DIRECTIVE\n",
+		"new/go.mod": "module m.test/new\n\ngo 1.99\n\nrequire m.test/b v1.0.0\n",
+	})
+	stage := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1}}
+	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 3 {
+		t.Fatalf("completion = %+v", c)
 	}
 }
 

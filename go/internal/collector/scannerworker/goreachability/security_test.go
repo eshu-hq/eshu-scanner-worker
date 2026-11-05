@@ -119,7 +119,7 @@ func TestTokenIsNotPersistedInTheCheckout(t *testing.T) {
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	scanned := 0
-	stage := &recordingStage{t: t, inspect: func(input StageInput) {
+	stage := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1}, inspect: func(input StageInput) {
 		err := filepath.WalkDir(input.CheckoutDir, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil || entry.IsDir() {
 				return walkErr

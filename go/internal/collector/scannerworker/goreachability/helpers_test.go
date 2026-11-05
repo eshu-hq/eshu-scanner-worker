@@ -169,8 +169,9 @@ func evidenceOf(output scannerworker.FactOutput) []string {
 func warningsOf(output scannerworker.FactOutput) []string {
 	var got []string
 	for _, fact := range output.Facts {
-		if fact.FactKind == chain.VulnerabilityWarningFactKind {
-			got = append(got, fact.Payload["reason"].(string)+" "+fact.Payload["relative_path"].(string))
+		if fact.FactKind == facts.ScannerWorkerWarningFactKind {
+			relative, _ := fact.Payload["relative_path"].(string)
+			got = append(got, fact.Payload["reason"].(string)+" "+relative)
 		}
 	}
 	slices.Sort(got)

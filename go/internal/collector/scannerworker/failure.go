@@ -60,6 +60,9 @@ const (
 	// FailureClassAnalysisFailed covers a module the analyzer could not read
 	// at this commit, such as a malformed go.mod.
 	FailureClassAnalysisFailed FailureClass = "analysis_failed"
+	// FailureClassSelfCheckFailed covers a result whose module counts do not add up.
+	// It is terminal: such a result never commits.
+	FailureClassSelfCheckFailed FailureClass = "self_check_failed"
 )
 
 // FailurePayload is the privacy-safe retry or dead-letter payload for scanner
@@ -145,7 +148,8 @@ func (c FailureClass) validate() error {
 		FailureClassCheckoutFailed,
 		FailureClassAuthDenied,
 		FailureClassToolchainUnsupported,
-		FailureClassAnalysisFailed:
+		FailureClassAnalysisFailed,
+		FailureClassSelfCheckFailed:
 		return nil
 	default:
 		if strings.TrimSpace(string(c)) == "" {

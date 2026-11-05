@@ -145,7 +145,7 @@ func TestOversizedGoModWarnsInsteadOfBeingRead(t *testing.T) {
 	if got := warningsOf(result.Output); len(got) != 1 || got[0] != "go_mod_too_large big/go.mod" {
 		t.Fatalf("warnings = %v", got)
 	}
-	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 		t.Fatalf("completion = %+v", c)
 	}
 }

@@ -146,8 +146,7 @@ func TestFactLimitCoversWarningsAddedAfterTheStage(t *testing.T) {
 	input := testInput(t)
 	input.Limits.MaxFacts = 1
 	stage := &recordingStage{t: t, outcome: StageOutcome{
-		ModulesAnalyzed: 1,
-		Failed:          []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}},
+		Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}},
 	}}
 	_, err := fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }).Analyze(context.Background(), input)
 	wantFailure(t, err, scannerworker.FailureClassFactLimitExceeded, false)
@@ -161,7 +160,7 @@ func TestAStageWithNoEligibleModuleIsNotCalled(t *testing.T) {
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": "module m.test/a\n\ngo 1.99\n\nrequire m.test/b v1.0.0\n"})
 	stage := &recordingStage{t: t, err: errors.New("stage must not run")}
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
-	if c := result.Completion; !c.Partial || c.TrustedDeletion {
+	if c := result.Completion; !c.Partial || !c.TrustedDeletion {
 		t.Fatalf("completion = %+v", c)
 	}
 }
