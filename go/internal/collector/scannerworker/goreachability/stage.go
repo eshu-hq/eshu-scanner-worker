@@ -20,6 +20,10 @@ type Module struct {
 	Dir string
 	// ModulePath is the path the go.mod declares. It is evidence, not identity.
 	ModulePath string
+	// LocalReplaces lists the go.mod's local replace targets, relative to the
+	// repository root. Each stays inside the checkout as text. A link in the written
+	// tree can still leave it, so a stage must resolve them before it reads the module.
+	LocalReplaces []string
 }
 
 // StageInput is what stage B receives. Facts it builds must use this claim

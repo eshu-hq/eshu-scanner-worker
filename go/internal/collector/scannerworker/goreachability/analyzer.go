@@ -268,6 +268,9 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		if entry.sumNotRegular {
 			warn(warningGoSumNotRegular, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
 		}
+		if module.replaceOutside {
+			warn(warningReplaceOutsideCheckout, scannerworker.FailureClassAnalysisFailed, entry.relativePath)
+		}
 		if len(read.facts)+len(read.warnings)+len(module.requirements) > maxFacts {
 			return moduleRead{}, factLimitFailure()
 		}
@@ -276,8 +279,8 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 		}
 		read.parsed++
 		read.requirements += len(module.requirements)
-		if !unsupported && module.invalidPaths == 0 && !entry.sumNotRegular {
-			read.eligible = append(read.eligible, Module{RelativePath: module.relativePath, Dir: module.dir, ModulePath: module.modulePath})
+		if !unsupported && module.invalidPaths == 0 && !entry.sumNotRegular && !module.replaceOutside {
+			read.eligible = append(read.eligible, Module{RelativePath: module.relativePath, Dir: module.dir, ModulePath: module.modulePath, LocalReplaces: module.localReplaces})
 		}
 	}
 	return read, nil

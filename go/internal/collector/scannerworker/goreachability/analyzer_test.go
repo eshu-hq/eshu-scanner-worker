@@ -157,7 +157,7 @@ replace example.test/hit v1.1.0 => example.test/hit-fork v9.1.0
 
 replace example.test/miss v1.0.0 => example.test/miss-fork v9.2.0
 
-replace example.test/local => ../sibling
+replace example.test/local => ./sibling
 
 replace example.test/both => example.test/both-any v9.3.0
 
@@ -173,7 +173,7 @@ replace example.test/both v1.4.0 => example.test/both-exact v9.4.0
 		"example.test/all":   {"example.test/all-fork", "v9.0.0", "", 6, false},
 		"example.test/hit":   {"example.test/hit-fork", "v9.1.0", "v1.1.0", 7, false},
 		"example.test/miss":  {"", "", "", 8, false},
-		"example.test/local": {"../sibling", "", "", 9, false},
+		"example.test/local": {"./sibling", "", "", 9, false},
 		"example.test/both":  {"example.test/both-exact", "v9.4.0", "v1.4.0", 10, false},
 		"example.test/none":  {"", "", "", 11, true},
 	} {

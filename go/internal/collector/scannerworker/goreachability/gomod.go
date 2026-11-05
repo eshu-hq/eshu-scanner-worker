@@ -6,6 +6,7 @@ package goreachability
 import (
 	"go/version"
 	"path"
+	"slices"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -33,6 +34,13 @@ type goModule struct {
 	requirements []requirement
 	// invalidPaths counts the requires dropped for text that must not reach a fact.
 	invalidPaths int
+	// replaceOutside reports a local replace whose path leaves the checkout. A scan
+	// would read that path and report its code as this commit's.
+	replaceOutside bool
+	// localReplaces holds the other local replace targets, relative to the repository
+	// root, sorted and unique. Only the written tree can show whether one leaves through
+	// a link.
+	localReplaces []string
 }
 
 // parseGoMod parses one go.mod. It uses the strict modfile.Parse because
@@ -58,6 +66,7 @@ func parseGoMod(relativePath string, body []byte) (goModule, error) {
 	if parsed.Toolchain != nil {
 		parsedModule.toolchain = parsed.Toolchain.Name
 	}
+	parsedModule.replaceOutside, parsedModule.localReplaces = readLocalReplaces(parsedModule.dir, parsed.Replace)
 	replaces := newReplaceIndex(parsed.Replace)
 	seen := make(map[[2]string]struct{}, len(parsed.Require))
 	for _, require := range parsed.Require {
@@ -86,6 +95,30 @@ func parseGoMod(relativePath string, body []byte) (goModule, error) {
 		parsedModule.requirements = append(parsedModule.requirements, item)
 	}
 	return parsedModule, nil
+}
+
+// readLocalReplaces resolves each local replace against the go.mod's directory, whether
+// or not a require names it. A replace with no version is local: the strict parser
+// refuses any other form without one.
+func readLocalReplaces(goModDir string, replaces []*modfile.Replace) (outside bool, inside []string) {
+	for _, candidate := range replaces {
+		if candidate.New.Version != "" {
+			continue
+		}
+		target := candidate.New.Path
+		if path.IsAbs(target) {
+			outside = true
+			continue
+		}
+		resolved := path.Join(goModDir, target)
+		if resolved == ".." || strings.HasPrefix(resolved, "../") {
+			outside = true
+			continue
+		}
+		inside = append(inside, resolved)
+	}
+	slices.Sort(inside)
+	return outside, slices.Compact(inside)
 }
 
 // isSafe reports whether every string of a requirement may reach a fact.

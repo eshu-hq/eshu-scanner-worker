@@ -39,7 +39,7 @@ require (
 
 replace example.test/forked => example.test/fork v9.9.9
 
-replace example.test/local => ../local
+replace example.test/local => ./local
 `
 
 // TestModuleEvidenceConformsToThePublishedSchema pushes real analyzer output
@@ -118,7 +118,7 @@ func TestModuleEvidenceConformsToThePublishedSchema(t *testing.T) {
 				t.Fatalf("replace not carried: %+v", typed)
 			}
 		case "example.test/local":
-			if typed.ReplacementPath == nil || *typed.ReplacementPath != "../local" || typed.ReplacementVersion != nil {
+			if typed.ReplacementPath == nil || *typed.ReplacementPath != "./local" || typed.ReplacementVersion != nil {
 				t.Fatalf("local replace not carried: %+v", typed)
 			}
 		default:

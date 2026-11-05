@@ -151,6 +151,9 @@ func (s *ScanStage) scanModule(ctx context.Context, input StageInput, module Mod
 	if moduleCtx.Err() != nil {
 		return moduleScan{failure: warningAnalysisTimeout}
 	}
+	if !replacesStayInCheckout(input.CheckoutDir, module.LocalReplaces) {
+		return moduleScan{failure: warningReplaceOutsideCheckout}
+	}
 	dir := filepath.Join(input.CheckoutDir, filepath.FromSlash(module.Dir))
 	stream, stderr, runErr, parseErr := s.runScanner(moduleCtx, dir, env)
 	if moduleCtx.Err() != nil {

@@ -6,6 +6,7 @@ package goreachability
 import (
 	"bytes"
 	"context"
+	"errors"
 	"go/build"
 	"io"
 	"io/fs"
@@ -105,6 +106,30 @@ func skipForPackages(root, path, name string) error {
 		return filepath.SkipDir
 	}
 	return nil
+}
+
+// replacesStayInCheckout follows every link in each local replace target. A target that
+// does not exist stays allowed: the go command fails on it, so nothing outside is read.
+// Any other error refuses, because the path could not be proven inside.
+func replacesStayInCheckout(checkout string, replaces []string) bool {
+	root, err := filepath.EvalSymlinks(checkout)
+	if err != nil {
+		return false
+	}
+	for _, target := range replaces {
+		resolved, err := filepath.EvalSymlinks(filepath.Join(checkout, filepath.FromSlash(target)))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false
+		}
+		relative, err := filepath.Rel(root, resolved)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return false
+		}
+	}
+	return true
 }
 
 // needsCgo reports whether cgo is the only thing that kept a file out of the build: it

@@ -24,32 +24,35 @@ const (
 	warningGoModNotRegular      = "go_mod_not_regular"
 	warningGoModInvalidPath     = "go_mod_invalid_path"
 	warningGoSumNotRegular      = "go_sum_not_regular"
-	warningNoGoModules          = "no_go_modules"
-	warningNoRequirements       = "no_module_requirements"
-	warningCgoRequired          = "cgo_required"
-	warningAnalysisTimeout      = "analysis_timeout"
-	warningAnalysisFailed       = "analysis_failed"
-	warningModuleBudgetExceeded = "module_budget_exceeded"
-	warningModuleDownloadFailed = "module_download_failed"
-	warningVulnDBUnavailable    = "vulndb_unavailable"
+	// warningReplaceOutsideCheckout is terminal for the commit: the go.mod names it.
+	warningReplaceOutsideCheckout = "replace_outside_checkout"
+	warningNoGoModules            = "no_go_modules"
+	warningNoRequirements         = "no_module_requirements"
+	warningCgoRequired            = "cgo_required"
+	warningAnalysisTimeout        = "analysis_timeout"
+	warningAnalysisFailed         = "analysis_failed"
+	warningModuleBudgetExceeded   = "module_budget_exceeded"
+	warningModuleDownloadFailed   = "module_download_failed"
+	warningVulnDBUnavailable      = "vulndb_unavailable"
 )
 
 // warningDetails is fixed text per reason, so no file content reaches a fact.
 var warningDetails = map[string]string{
-	warningToolchainUnsupported: "a go or toolchain requirement is above the pinned toolchain; this module is not analyzed for reachability",
-	warningGoModParseFailed:     "go.mod did not parse; no module evidence for this file",
-	warningGoModTooLarge:        "go.mod is above the read bound; no module evidence for this file",
-	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
-	warningGoModInvalidPath:     "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
-	warningGoSumNotRegular:      "go.sum is a symlink or a submodule link, which a scan would write through; this module is not analyzed for reachability",
-	warningNoGoModules:          "no go.mod at this commit outside excluded directories",
-	warningNoRequirements:       "no go.mod at this commit declares a requirement",
-	warningCgoRequired:          "a package needs cgo, which this scan disables; this module is not analyzed for reachability",
-	warningAnalysisTimeout:      "the scan of this module did not finish in its budget; this module is not analyzed for reachability",
-	warningAnalysisFailed:       "the scan of this module did not finish; this module is not analyzed for reachability",
-	warningModuleDownloadFailed: "a required module did not download; this module is not analyzed for reachability",
-	warningVulnDBUnavailable:    "the vulnerability database was not reachable; this module is not analyzed for reachability",
-	warningModuleBudgetExceeded: "this repository has more modules than one claim scans; some are not analyzed for reachability",
+	warningToolchainUnsupported:   "a go or toolchain requirement is above the pinned toolchain; this module is not analyzed for reachability",
+	warningGoModParseFailed:       "go.mod did not parse; no module evidence for this file",
+	warningGoModTooLarge:          "go.mod is above the read bound; no module evidence for this file",
+	warningGoModNotRegular:        "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
+	warningGoModInvalidPath:       "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
+	warningGoSumNotRegular:        "go.sum is a symlink or a submodule link, which a scan would write through; this module is not analyzed for reachability",
+	warningReplaceOutsideCheckout: "a local replace leaves the checkout, so a scan would report code outside this commit; this module is not analyzed for reachability",
+	warningNoGoModules:            "no go.mod at this commit outside excluded directories",
+	warningNoRequirements:         "no go.mod at this commit declares a requirement",
+	warningCgoRequired:            "a package needs cgo, which this scan disables; this module is not analyzed for reachability",
+	warningAnalysisTimeout:        "the scan of this module did not finish in its budget; this module is not analyzed for reachability",
+	warningAnalysisFailed:         "the scan of this module did not finish; this module is not analyzed for reachability",
+	warningModuleDownloadFailed:   "a required module did not download; this module is not analyzed for reachability",
+	warningVulnDBUnavailable:      "the vulnerability database was not reachable; this module is not analyzed for reachability",
+	warningModuleBudgetExceeded:   "this repository has more modules than one claim scans; some are not analyzed for reachability",
 }
 
 // Scanner vocabulary for the scanner_worker.warning status fields, shared with

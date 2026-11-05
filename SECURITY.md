@@ -85,6 +85,10 @@ fails the claim.
 module whose `go.sum` is a link is therefore never scanned, so a repository cannot plant
 a file outside its checkout or break the module cache other repositories share.
 
+A module with a local `replace` that leaves the checkout, as written or through a link in
+the tree, is never scanned either, so a fact cannot report code outside the claimed commit
+as that commit's.
+
 ## Supply Chain
 
 `.github/workflows/release.yml` publishes

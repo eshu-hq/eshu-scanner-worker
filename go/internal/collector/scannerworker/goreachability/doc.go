@@ -19,7 +19,9 @@
 // yields a scanner_worker.warning and no reachability fact, so a failed scan can
 // never read as not_called. The child's environment is built from nothing, so the
 // token never reaches it; repository code is type-checked and never executed. It
-// runs over a full checkout written once the tree has passed the budgets.
+// runs over a full checkout written once the tree has passed the budgets. A module
+// whose go.sum is a link, or whose local replace leaves the checkout, is not scanned:
+// the first would write outside the tree and the second would read outside it.
 //
 // Identity comes from the host. The repository id and commit are read from the
 // host_derived_target request key, whose scope must equal the claim scope
