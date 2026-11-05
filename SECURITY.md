@@ -81,6 +81,10 @@ environment is a vulnerability. Operators may set only `GOPROXY`, `GOSUMDB`,
 `GOVULNDB`, `HTTPS_PROXY`, `NO_PROXY`, and `SSL_CERT_FILE`; a Go policy variable
 fails the claim.
 
+`GOFLAGS=-mod=mod` makes the go command write `go.sum`, and it writes through a link. A
+module whose `go.sum` is a link is therefore never scanned, so a repository cannot plant
+a file outside its checkout or break the module cache other repositories share.
+
 ## Supply Chain
 
 `.github/workflows/release.yml` publishes

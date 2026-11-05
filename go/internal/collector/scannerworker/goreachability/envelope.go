@@ -23,6 +23,7 @@ const (
 	warningGoModTooLarge        = "go_mod_too_large"
 	warningGoModNotRegular      = "go_mod_not_regular"
 	warningGoModInvalidPath     = "go_mod_invalid_path"
+	warningGoSumNotRegular      = "go_sum_not_regular"
 	warningNoGoModules          = "no_go_modules"
 	warningNoRequirements       = "no_module_requirements"
 	warningCgoRequired          = "cgo_required"
@@ -40,6 +41,7 @@ var warningDetails = map[string]string{
 	warningGoModTooLarge:        "go.mod is above the read bound; no module evidence for this file",
 	warningGoModNotRegular:      "go.mod is a symlink or a submodule link; it is not read, and there is no module evidence for this file",
 	warningGoModInvalidPath:     "go.mod or a path it declares is not valid as identity; that text is not recorded, and this module is not analyzed for reachability",
+	warningGoSumNotRegular:      "go.sum is a symlink or a submodule link, which a scan would write through; this module is not analyzed for reachability",
 	warningNoGoModules:          "no go.mod at this commit outside excluded directories",
 	warningNoRequirements:       "no go.mod at this commit declares a requirement",
 	warningCgoRequired:          "a package needs cgo, which this scan disables; this module is not analyzed for reachability",

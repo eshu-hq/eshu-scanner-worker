@@ -63,6 +63,7 @@ has no reachability evidence, and never reads `not_called`.
 | `analysis_failed` | Any other failure, such as a type error or a crash. |
 | `module_budget_exceeded` | Whole repository: more modules than one claim scans. |
 | `go_mod_parse_failed`, `go_mod_too_large`, `go_mod_not_regular`, `go_mod_invalid_path` | The `go.mod` could not be used. |
+| `go_sum_not_regular` | The `go.sum` beside the `go.mod` is a link. The go command would write through it, so the module is not scanned and its evidence stays. |
 | `no_go_modules`, `no_module_requirements` | The scan finished with nothing to report. |
 
 ## The scan

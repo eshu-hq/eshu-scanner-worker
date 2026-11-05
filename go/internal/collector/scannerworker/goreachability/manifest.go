@@ -24,6 +24,8 @@ import (
 const (
 	// goModName is the only file this analyzer reads.
 	goModName = "go.mod"
+	// goSumName is the file the go command writes beside it during a scan.
+	goSumName = "go.sum"
 	// maxGoModBytes bounds one go.mod read. A real file is kilobytes; a larger one
 	// is reported as a warning rather than read.
 	maxGoModBytes = 4 * 1024 * 1024
@@ -67,6 +69,10 @@ type goModEntry struct {
 	object       string
 	size         int64
 	state        goModState
+	// sumNotRegular marks a go.sum beside this go.mod that is a symlink or gitlink.
+	// GOFLAGS=-mod=mod makes the go command write go.sum, through a link, so this
+	// module can never be scanned.
+	sumNotRegular bool
 }
 
 // treeManifest is what the verified tree holds, measured before any worktree byte
@@ -114,6 +120,9 @@ func parseTree(stream io.Reader, limits scannerworker.ResourceLimits) (treeManif
 		fileCount int64
 		bytesRead int64
 		goModRead int64
+		// linkedSums holds the go.sum paths that are links, under the go.mod list's own
+		// bound, because a tree need not list a directory's entries in order.
+		linkedSums = map[string]struct{}{}
 	)
 	reader := bufio.NewReaderSize(stream, maxTreeEntryBytes)
 	for {
@@ -139,6 +148,13 @@ func parseTree(stream io.Reader, limits scannerworker.ResourceLimits) (treeManif
 		if bytesRead > limits.MaxInputBytes {
 			return treeManifest{}, inputLimitFailure()
 		}
+		if isNonRegularGoSum(mode, rawPath) {
+			linkedSums[rawPath] = struct{}{}
+			if len(linkedSums) > maxGoModFiles {
+				return treeManifest{}, fileLimitFailure()
+			}
+			continue
+		}
 		if !isModuleFile(rawPath) {
 			continue
 		}
@@ -158,6 +174,10 @@ func parseTree(stream io.Reader, limits scannerworker.ResourceLimits) (treeManif
 		return cmp.Or(cmp.Compare(a.relativePath, b.relativePath), cmp.Compare(a.rawPath, b.rawPath))
 	})
 	manifest.goMods = refuseRepeatedPaths(manifest.goMods)
+	for i, entry := range manifest.goMods {
+		_, linked := linkedSums[strings.TrimSuffix(entry.rawPath, goModName)+goSumName]
+		manifest.goMods[i].sumNotRegular = linked
+	}
 	return manifest, nil
 }
 
@@ -199,15 +219,23 @@ func parseTreeRecord(record []byte) (mode, object string, size int64, rawPath st
 
 // isModuleFile reports a go.mod outside the excluded directories, at any depth.
 func isModuleFile(rawPath string) bool {
-	if path.Base(rawPath) != goModName {
-		return false
-	}
+	return path.Base(rawPath) == goModName && !inExcludedDir(rawPath)
+}
+
+// isNonRegularGoSum reports a go.sum link outside the excluded directories.
+func isNonRegularGoSum(mode, rawPath string) bool {
+	return (mode == gitModeSymlink || mode == gitModeGitlink) && path.Base(rawPath) == goSumName && !inExcludedDir(rawPath)
+}
+
+// inExcludedDir reports a path under a directory whose files are not this
+// repository's modules.
+func inExcludedDir(rawPath string) bool {
 	for _, segment := range strings.Split(path.Dir(rawPath), "/") {
 		if shouldSkipDir(segment) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // classifyGoMod decides what may happen to one go.mod entry. A bad path wins, since
