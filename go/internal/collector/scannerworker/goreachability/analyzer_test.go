@@ -51,6 +51,31 @@ func TestAnalyzeFailsWhenCheckoutIsNotTheClaimedCommit(t *testing.T) {
 	}
 }
 
+// TestReadModulesStopsOnACancelledContext proves the per-file context check: a
+// cancelled context fails the read before any entry is touched, even one that
+// needs no git call. The live-context control proves the fixture otherwise
+// reads.
+func TestReadModulesStopsOnACancelledContext(t *testing.T) {
+	t.Parallel()
+
+	analyzer := &Analyzer{toolchain: testToolchain}
+	emit := emitContext{input: testInput(t), instanceID: "instance-1", repositoryID: testRepositoryID, commitSHA: strings.Repeat("a", 40)}
+	manifest := treeManifest{goMods: []goModEntry{{rawPath: "big/go.mod", relativePath: "big/go.mod", state: goModOversized}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := analyzer.readModules(ctx, gitRunner{}, t.TempDir(), emit, manifest)
+	wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
+	wantReason(t, err, reasonCheckoutFailed)
+
+	read, err := analyzer.readModules(context.Background(), gitRunner{}, t.TempDir(), emit, manifest)
+	if err != nil {
+		t.Fatalf("live context: %v", err)
+	}
+	if read.unread != 1 || len(read.warnings) != 1 {
+		t.Fatalf("live context: read = %+v, want the oversized warning", read)
+	}
+}
+
 // TestAnalyzeIdentityComesFromTheClaim proves a checkout cannot choose its
 // repository identity: the go.mod module path and remote never reach
 // repository_id.

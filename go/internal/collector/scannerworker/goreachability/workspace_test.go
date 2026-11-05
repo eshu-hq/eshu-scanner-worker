@@ -148,6 +148,87 @@ func TestWorkspaceRootMustBePrivate(t *testing.T) {
 	}
 }
 
+// TestOpenWorkspaceHoldsTheRootLockAcrossSweepAndCreate proves sweep and create
+// share the root lock: while one open runs its sweep, the root lock reads held.
+// A root lock released right after acquiring would let a second sweep see a
+// workspace between its creation and its lock and remove a live claim, so the
+// test watches the lock file from the side and requires several consecutive
+// held observations. The sweep's removed count proves the window was real.
+func TestOpenWorkspaceHoldsTheRootLockAcrossSweepAndCreate(t *testing.T) {
+	t.Parallel()
+
+	tempRoot := t.TempDir()
+	root := filepath.Join(tempRoot, workspaceRootName)
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	const staleDirs, filesPerDir = 400, 25
+	for range staleDirs {
+		dir, err := os.MkdirTemp(root, claimDirPrefix+"stale-")
+		if err != nil {
+			t.Fatalf("MkdirTemp: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, workspaceLockName), nil, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		for j := range filesPerDir {
+			name := string(rune('a'+j%26)) + string(rune('a'+j/26)) + ".payload"
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+		}
+	}
+	hold, err := acquireLock(context.Background(), filepath.Join(root, workspaceLockName))
+	if err != nil {
+		t.Fatalf("acquireLock: %v", err)
+	}
+	type opened struct {
+		space *workspace
+		err   error
+	}
+	done := make(chan opened, 1)
+	go func() {
+		space, err := openWorkspace(context.Background(), tempRoot)
+		done <- opened{space: space, err: err}
+	}()
+	if err := hold.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	consecutive := 0
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		lock, held := tryLockFile(filepath.Join(root, workspaceLockName))
+		if lock != nil {
+			_ = lock.Close()
+		}
+		if held {
+			consecutive++
+			if consecutive >= 5 {
+				break
+			}
+		} else {
+			consecutive = 0
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the root lock never read held across another open's sweep and create")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	var result opened
+	select {
+	case result = <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the concurrent open never returned")
+	}
+	if result.err != nil {
+		t.Fatalf("openWorkspace: %v", result.err)
+	}
+	defer result.space.close()
+	if result.space.staleRemoved != staleDirs {
+		t.Fatalf("staleRemoved = %d, want %d; the sweep window was not what the lock watch assumed", result.space.staleRemoved, staleDirs)
+	}
+}
+
 // TestLockWaitHonorsTheContext proves a claim waiting on the sweep lock stops with
 // its deadline rather than hang.
 func TestLockWaitHonorsTheContext(t *testing.T) {

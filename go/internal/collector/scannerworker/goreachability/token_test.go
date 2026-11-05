@@ -69,6 +69,29 @@ func TestHostTokenRedactsEveryVerb(t *testing.T) {
 	}
 }
 
+// TestHostTokenPrintsOnlyTheRedaction pins the Format contract: every verb and
+// flag prints exactly the redaction, never a struct dump or a bad-verb marker.
+// Only %p, which prints an address, and %w, which only formats errors, bypass
+// formatting, so only those are excluded.
+func TestHostTokenPrintsOnlyTheRedaction(t *testing.T) {
+	t.Parallel()
+
+	token := ParseHostToken(map[string]any{"token": testToken, "scope_id": testScopeID})
+	if !token.usableFor(testScopeID) {
+		t.Fatal("the fixture token is not usable; the check would prove nothing")
+	}
+	for _, format := range formatVerbs() {
+		if verb := format[len(format)-1]; verb == 'p' || verb == 'w' {
+			continue
+		}
+		for name, value := range map[string]any{"value": token, "pointer": &token} {
+			if got := fmt.Sprintf(format, value); got != redactedToken {
+				t.Errorf("%s with %s = %q, want %q", name, format, got, redactedToken)
+			}
+		}
+	}
+}
+
 // containsFold reports a case-insensitive substring match, because %X uppercases.
 func containsFold(text, form string) bool {
 	lowerText, lowerForm := []byte(text), []byte(form)

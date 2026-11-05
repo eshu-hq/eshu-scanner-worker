@@ -10,7 +10,9 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -101,6 +103,50 @@ func TestGuardRefusesToRunWithoutItsGroup(t *testing.T) {
 	}
 	if code := RunGitGuard([]string{"true"}, strings.NewReader(""), io.Discard, io.Discard); code != guardRefused {
 		t.Fatalf("not a group leader: code = %d", code)
+	}
+}
+
+// TestParentDeathKillsTheGuardedGroup runs the real guard path: the guard leads
+// its own process group around a sleeping child, the parent pipe closes, and the
+// whole group must die. A guard that watches the pipe without killing would wait
+// out the sleep, so the wait has a budget.
+func TestParentDeathKillsTheGuardedGroup(t *testing.T) {
+	t.Parallel()
+
+	cmd := exec.Command(os.Args[0], GitGuardCommand, "sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	parent, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	pgid := cmd.Process.Pid
+	time.Sleep(500 * time.Millisecond)
+	if err := parent.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		<-done
+		t.Fatal("the guard did not kill its group after the parent pipe closed")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := syscall.Kill(-pgid, 0); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("process group %d outlived the guard", pgid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

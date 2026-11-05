@@ -207,6 +207,22 @@ func TestAllowedCloneHostsIsTheOperatorsSetting(t *testing.T) {
 	}
 }
 
+// TestEmptyAllowlistFailsClosedOnTheDefaultTarget proves a present but empty
+// allowed_clone_hosts is an error rather than the default: without the
+// component-level validation the empty list would silently keep github.com.
+func TestEmptyAllowlistFailsClosedOnTheDefaultTarget(t *testing.T) {
+	t.Parallel()
+
+	raw := validDerivedConfig()
+	raw["allowed_clone_hosts"] = []any{}
+	if _, err := parseConfigFor(scannerworker.AnalyzerGoReachability, raw); err == nil {
+		t.Fatal("an empty allowed_clone_hosts passed")
+	}
+	if _, err := parseConfigFor(scannerworker.AnalyzerGoReachability, validDerivedConfig()); err != nil {
+		t.Fatalf("no allowlist: %v", err)
+	}
+}
+
 // TestOtherComponentsRefuseAllowedCloneHosts keeps the key go_reachability's alone.
 func TestOtherComponentsRefuseAllowedCloneHosts(t *testing.T) {
 	t.Parallel()

@@ -412,6 +412,21 @@ func TestDuplicateTreeEntriesCannotShareAKey(t *testing.T) {
 	}
 }
 
+// TestInvalidPathsAreCountedInTheFigures proves the invalid-path count reaches
+// the completion figures, so the attestation cannot silently drop the warnings.
+func TestInvalidPathsAreCountedInTheFigures(t *testing.T) {
+	t.Parallel()
+
+	url, sha := craftedTreeRepo(t, "..")
+	result := analyze(t, fixtureAnalyzer(t, url, sha, nil))
+	if got := result.Completion.Figures["invalid_paths"]; got != 1 {
+		t.Fatalf("invalid_paths = %d, want 1", got)
+	}
+	if got := result.Completion.Figures["modules_total"]; got != 1 {
+		t.Fatalf("modules_total = %d, want 1", got)
+	}
+}
+
 // TestInvalidPathWarningsCannotCollide covers a valid directory literally named like
 // another's escape, with a bad require. Each warning needs its own key.
 func TestInvalidPathWarningsCannotCollide(t *testing.T) {

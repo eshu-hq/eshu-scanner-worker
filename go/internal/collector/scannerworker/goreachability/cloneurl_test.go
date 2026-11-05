@@ -110,6 +110,88 @@ func TestAllowedCloneHostsIsAnExplicitOperatorSetting(t *testing.T) {
 	}
 }
 
+// TestCloneURLUserinfoQueryAndBackslashAreRefusedOnAnyTransport proves the
+// credential-free layer itself: on a transport without core's canonical-remote
+// mirror, only the userinfo, query, and backslash checks stand between a
+// hostile URL and the git command line. The https suite above cannot see this
+// layer because the canonical check refuses those URLs first.
+func TestCloneURLUserinfoQueryAndBackslashAreRefusedOnAnyTransport(t *testing.T) {
+	t.Parallel()
+
+	build := func(raw string) error {
+		target := validTarget()
+		target.CloneURL = raw
+		_, err := NewAnalyzer(Config{
+			CollectorInstanceID: "i",
+			Target:              target,
+			Options:             Options{AllowedSchemes: []string{"http"}},
+		})
+		return err
+	}
+	for _, raw := range []string{
+		"http://user@h.example/o/r",
+		"http://user:SENTINEL@h.example/o/r",
+		"http://h.example/o/r?x=1",
+		"http://h.example/o/r?",
+		"http://h.example/o/r#frag",
+		`http://h.example/o\r`,
+		"http://h.example/o/r\\",
+	} {
+		if err := build(raw); err == nil {
+			t.Errorf("clone url %q: error = nil, want refusal", raw)
+		} else if strings.Contains(err.Error(), "SENTINEL") {
+			t.Errorf("clone url %q: error echoes the value: %v", raw, err)
+		}
+	}
+	if err := build("http://h.example/o/r"); err != nil {
+		t.Fatalf("plain http url: %v", err)
+	}
+}
+
+// TestOperatorAllowlistWithAnUnusableEntryIsRefused proves the operator list is
+// validated, not just consulted: an entry that can never be a host name fails
+// the analyzer even when a listed name would serve the target.
+func TestOperatorAllowlistWithAnUnusableEntryIsRefused(t *testing.T) {
+	t.Parallel()
+
+	build := func(raw string, hosts ...string) error {
+		target := validTarget()
+		target.CloneURL = raw
+		_, err := NewAnalyzer(Config{CollectorInstanceID: "i", Target: target, Options: Options{AllowedCloneHosts: hosts}})
+		return err
+	}
+	for _, hosts := range [][]string{
+		{"github.com", "localhost"},
+		{"github.com", ""},
+		{"github.com", "127.0.0.1"},
+		{"github.com", "github.com:443"},
+		{"github.com", "GitHub.com"},
+		{"localhost"},
+	} {
+		if err := build("https://github.com/o/r", hosts...); err == nil {
+			t.Errorf("hosts %q: error = nil, want refusal", hosts)
+		}
+	}
+	local := validTarget()
+	local.CloneURL = "https://localhost/o/r"
+	if _, err := NewAnalyzer(Config{CollectorInstanceID: "i", Target: local, Options: Options{AllowedCloneHosts: []string{"localhost"}}}); err == nil {
+		t.Error("a target on an unvalidatable host passed its own listing")
+	}
+}
+
+// TestValidateCloneHostsRefusesATrailingDash covers what the host pattern lets
+// through: a final label ending in a dash matches the pattern, so only the
+// trailing-dash check refuses it.
+func TestValidateCloneHostsRefusesATrailingDash(t *testing.T) {
+	t.Parallel()
+
+	for _, host := range []string{"a.example-", "github.com-", "a-b.c1.example-"} {
+		if err := ValidateCloneHosts([]string{host}); err == nil {
+			t.Errorf("hosts %q: error = nil, want refusal", host)
+		}
+	}
+}
+
 // TestValidateCloneHostsRefusesWhatCanNeverBeAHostName covers the setting itself:
 // an IP literal or a port cannot be allowlisted, even by the operator.
 func TestValidateCloneHostsRefusesWhatCanNeverBeAHostName(t *testing.T) {

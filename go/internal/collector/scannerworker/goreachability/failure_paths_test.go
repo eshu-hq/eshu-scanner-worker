@@ -52,6 +52,30 @@ func failOnArgument(argument, stderr string) string {
 	return `for a in "$@"; do if [ "$a" = "` + argument + `" ]; then echo "` + stderr + `" >&2; exit 1; fi; done`
 }
 
+// TestMaterializedCheckoutIsVerifiedBeforeTheStageRuns proves the stage never
+// sees an unverified tree: a git that checks out one commit but reports another
+// as HEAD fails with commit_mismatch and the stage never runs.
+func TestMaterializedCheckoutIsVerifiedBeforeTheStageRuns(t *testing.T) {
+	t.Parallel()
+
+	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
+	shim, _ := gitShim(t, `case "$*" in *--end-of-options\ HEAD*) echo `+strings.Repeat("b", 40)+`; exit 0;; esac`)
+	stage := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1}}
+	analyzer := fixtureAnalyzer(t, url, shas[0], func(c *Config) {
+		c.Options.GitPath = shim
+		c.Options.Stage = stage
+	})
+	result, err := analyzer.Analyze(context.Background(), testInput(t))
+	wantFailure(t, err, scannerworker.FailureClassCheckoutFailed, true)
+	wantReason(t, err, reasonCommitMismatch)
+	if len(result.Output.Facts) != 0 {
+		t.Fatalf("facts = %d, want none", len(result.Output.Facts))
+	}
+	if len(stage.input.Modules) != 0 {
+		t.Fatalf("the stage ran on an unverified checkout: %+v", stage.input)
+	}
+}
+
 // TestCheckoutRefusalTextIsOnlyReadOnTheFetch proves a local failure whose text
 // happens to read like a refusal stays a retryable checkout failure.
 func TestCheckoutRefusalTextIsOnlyReadOnTheFetch(t *testing.T) {
