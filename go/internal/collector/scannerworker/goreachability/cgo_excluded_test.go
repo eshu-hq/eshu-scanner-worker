@@ -166,7 +166,7 @@ func TestProbeRunsTheRealGoList(t *testing.T) {
 			t.Parallel()
 
 			toolchain, _ := fakeScanner(t, "cat "+recorded)
-			toolchain.GoRoot = runtime.GOROOT()
+			toolchain.GoRoot = hostGoRoot(t)
 			input := stageInput(t, "go.mod")
 			writeModuleFile(t, input, ".", "go.mod", "module example.com/probe\n\ngo 1.26\n")
 			for file, body := range tc.files {

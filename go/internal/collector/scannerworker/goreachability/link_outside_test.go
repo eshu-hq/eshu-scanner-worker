@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/collector/scannerworker"
@@ -161,10 +160,11 @@ func TestRealGoListReadsALinkedFileFromOutsideTheModule(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "x.go")); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
-	cmd := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "list", "-json", "./...") // #nosec G204 -- the test's own toolchain over its own temp module
+	goRoot := hostGoRoot(t)
+	cmd := exec.Command(filepath.Join(goRoot, "bin", "go"), "list", "-json", "./...") // #nosec G204 -- the test's own toolchain over its own temp module
 	cmd.Dir = dir
 	cmd.Env = []string{
-		"PATH=" + filepath.Join(runtime.GOROOT(), "bin"),
+		"PATH=" + filepath.Join(goRoot, "bin"),
 		"HOME=" + dir, "GOCACHE=" + filepath.Join(dir, "cache"), "GOMODCACHE=" + filepath.Join(dir, "mod"),
 		"CGO_ENABLED=0", "GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=mod", "GOTELEMETRY=off",
 	}
