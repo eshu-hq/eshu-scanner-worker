@@ -166,16 +166,24 @@ func (g gitRunner) environment(origin string, token HostToken) []string {
 }
 
 // boundedBuffer keeps the first limit bytes and discards the rest, reporting
-// every write as complete so git never blocks on a full pipe.
+// every write as complete so git never blocks on a full pipe. It records that
+// it discarded, so a reader who must see the whole output — the cgo probe —
+// can fail closed instead of reading a truncated listing as complete.
 type boundedBuffer struct {
-	buffer bytes.Buffer
-	limit  int
+	buffer   bytes.Buffer
+	limit    int
+	overflow bool
 }
 
 // Write implements io.Writer.
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	if room := b.limit - b.buffer.Len(); room > 0 {
 		b.buffer.Write(p[:min(room, len(p))])
+		if len(p) > room {
+			b.overflow = true
+		}
+	} else if len(p) > 0 {
+		b.overflow = true
 	}
 	return len(p), nil
 }

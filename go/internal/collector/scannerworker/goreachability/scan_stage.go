@@ -261,8 +261,17 @@ func (s *ScanStage) scanModule(moduleCtx context.Context, input StageInput, modu
 	}
 	if runErr != nil {
 		failure := classifyScanFailure(stderr)
-		if failure == warningAnalysisFailed && s.graphNeedsCgo(moduleCtx, dir, env) {
-			failure = warningCgoRequired
+		if failure == warningAnalysisFailed {
+			needsCgo := s.graphNeedsCgo(moduleCtx, dir, env)
+			if moduleCtx.Err() != nil {
+				// The probe, not the scan, was cut by the deadline: the same
+				// analysis_timeout the finished-scan arm names, so the
+				// retry-once rule applies to it.
+				return moduleScan{failure: warningAnalysisTimeout}
+			}
+			if needsCgo {
+				failure = warningCgoRequired
+			}
 		}
 		return moduleScan{failure: failure, downloadTerminal: failure == warningModuleDownloadFailed && downloadAnsweredTerminal(stderr)}
 	}

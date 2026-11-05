@@ -193,8 +193,13 @@ bound, and `findings_not_called_withheld` is from the real scan where one ran:
 | --- | --- | --- | --- | --- |
 | Fixture (cgopair: a `//go:build cgo` caller beside a `!cgo` stub) | 1 | 1 | 4 | 0.09 / 0.09 |
 | eshu-hq/eshu-scanner-worker | 1 | 0 | 0 | 1.38 / 1.38 |
-| eshu-hq/eshu (16 tracked modules outside testdata) | 16 | 1 (`go`, whose scan already fails `cgo_required` on the probe's failure arm, so it withholds nothing) | 0 | 32.74 (`go`; every other module ≤ 0.28) / 33.62 |
+| eshu-hq/eshu (16 tracked modules outside testdata) | 16 | 0 reported; 1 probe-positive (`go`, whose scan already fails `cgo_required` on the probe's failure arm, so it withholds nothing and never reaches the figure) | 0 | 32.74 (`go`; every other module about a second or less) / 33.62 |
 | golang/tools `1ca5072` | 3 | 0 | 0 | 0.18 / 0.19 (`gopls` does not list on Go 1.26; its scan fails `toolchain_unsupported` before any probe) |
+
+A second probe run the same day, through the production probe on the same four
+repositories, reproduced every excluded verdict above (fixture 1; eshu `go` only;
+scanner-worker and golang/tools 0, with `gopls` not listing on Go 1.26) at lower
+walls under lighter load (`go` 15.06 s; the real cgopair scan again withheld 4).
 
 **The budgets held unchanged.** The probe shares the scan's 5-minute module context:
 the worst module here (`go`, 32.74 s) spent 134.38 s scanning cold before failing, so

@@ -67,7 +67,9 @@ const graphListFormat = `{{if not .Standard}}{{if .IgnoredGoFiles}}{{.Dir}}|{{jo
 // undefined symbols, with no text that names cgo: a real run on eshu-hq/eshu printed
 // only "undefined: tree_sitter.Node". So this asks the go command which of the graph's
 // excluded files only cgo kept out. go list runs no compiler and no repository code. It is
-// only ever a better name for a failure, and on any error the failure keeps its name.
+// only ever a better name for a failure, and on any error the failure keeps
+// its name — unless the probe itself was cut by the module deadline, which
+// the caller names analysis_timeout, as on the finished-scan arm.
 func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string) bool {
 	excluded, err := s.graphCgoExcluded(ctx, dir, env)
 	return err == nil && excluded
@@ -92,6 +94,11 @@ func (s *ScanStage) graphCgoExcluded(ctx context.Context, dir string, env []stri
 	if err := cmd.Run(); err != nil {
 		return false, err
 	}
+	if output.overflow {
+		// A listing read only in part cannot prove the graph whole: the
+		// cgo-excluded file may sit past the buffer.
+		return false, errors.New("the cgo probe listing passed its buffer")
+	}
 	for line := range strings.Lines(output.String()) {
 		packageDir, files, ok := strings.Cut(strings.TrimSpace(line), "|")
 		if !ok {
@@ -99,7 +106,11 @@ func (s *ScanStage) graphCgoExcluded(ctx context.Context, dir string, env []stri
 		}
 		for name := range strings.SplitSeq(files, ",") {
 			path := filepath.Join(packageDir, name)
-			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && needsCgo(path) {
+			// Stat, not Lstat: the go command reads a linked .go file, and
+			// the link walk before the child started already proved every
+			// link under a scanned root stays inside the checkout, so the
+			// probe follows it exactly as the scan did.
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && needsCgo(path) {
 				return true, nil
 			}
 		}

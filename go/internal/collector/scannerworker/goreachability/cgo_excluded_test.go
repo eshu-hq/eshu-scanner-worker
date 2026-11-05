@@ -252,3 +252,72 @@ func TestProbeCutByDeadlineIsAnalysisTimeout(t *testing.T) {
 		t.Fatalf("outcome = %+v, want one analysis_timeout and no facts", outcome)
 	}
 }
+
+// TestProbeDeadlineOnTheFailedScanArmIsAnalysisTimeout is the same B2.3 probe
+// deadline on the other call site: a scan that failed with a plain
+// analysis_failed asks the probe whether cgo explains it, and a probe cut by
+// the module deadline names the module analysis_timeout there too — retryable
+// once under B5 — not the terminal analysis_failed the scan started as.
+func TestProbeDeadlineOnTheFailedScanArmIsAnalysisTimeout(t *testing.T) {
+	t.Parallel()
+
+	toolchain, _ := fakeScanner(t, failingScannerBody(t, "stderr_type_error.txt"))
+	writeFakeGo(t, toolchain, "#!/bin/sh\nexec /usr/bin/sleep 30\n")
+	input := stageInput(t, "go.mod")
+	input.Claim.Attempt = 2
+	start := time.Now()
+	outcome, err := runStage(t, toolchain, input, func(c *ScanConfig) { c.ModuleTimeout = 500 * time.Millisecond })
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= gitWaitDelay {
+		t.Fatalf("the probe outlived its context: %s", elapsed)
+	}
+	if len(outcome.Facts) != 0 || len(outcome.Failed) != 1 || outcome.Failed[0].Reason != warningAnalysisTimeout {
+		t.Fatalf("outcome = %+v, want one analysis_timeout and no facts", outcome)
+	}
+}
+
+// TestProbeOutputPastTheBufferFailsClosed proves the probe cannot pass a
+// graph whole from a listing it only partly read: listing output past the
+// buffer is a probe error, which fails the module whole with no facts,
+// rather than a truncated listing whose cgo-excluded file fell off the end
+// reading as "no file excluded" under a not_called.
+func TestProbeOutputPastTheBufferFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	toolchain, _ := fakeScanner(t, "cat "+fixturePath(t, "xtext_v0_3_5_symbol_source.jsonl"))
+	input := stageInput(t, "go.mod")
+	writeModuleFile(t, input, ".", "run_cgo.go", cgoTaggedFile)
+	flood := "#!/bin/sh\ni=0\nwhile [ $i -lt 20000 ]; do printf '/nonexistent/package-%06d|ignored_cgo_one.go,ignored_cgo_two.go\\n' $i; i=$((i + 1)); done\necho '" + input.CheckoutDir + "|run_cgo.go'\n"
+	writeFakeGo(t, toolchain, flood)
+	outcome, err := runStage(t, toolchain, input, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(outcome.Facts) != 0 || outcome.ModulesAnalyzed != 0 || len(outcome.Failed) != 1 || outcome.Failed[0].Reason != warningAnalysisFailed {
+		t.Fatalf("outcome = %+v, want no facts and one analysis_failed", outcome)
+	}
+}
+
+// TestProbeSeesACgoFileBehindAnInsideLink proves the B7-allowed shape against
+// B2: a link that stays inside the checkout is eligible, and the go command
+// reads through it, so the probe must read through it too when the listing
+// names the link. A probe that follows no link would miss the cgo-excluded
+// file and emit the very not_called B2 forbids.
+func TestProbeSeesACgoFileBehindAnInsideLink(t *testing.T) {
+	t.Parallel()
+
+	toolchain, _ := fakeScanner(t, "cat "+fixturePath(t, "xtext_v0_3_5_symbol_source.jsonl"))
+	input := stageInput(t, "go.mod")
+	writeModuleFile(t, input, "real", "run_cgo.go", cgoTaggedFile)
+	linkInCheckout(t, input, "run_cgo.go", "real/run_cgo.go")
+	writeFakeGo(t, toolchain, "#!/bin/sh\necho '"+input.CheckoutDir+"|run_cgo.go'\n")
+	outcome, err := runStage(t, toolchain, input, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(outcome.Failed) != 1 || outcome.Failed[0].Reason != warningCgoExcluded || outcome.Figures["findings_not_called"] != 0 {
+		t.Fatalf("outcome = %+v figures=%v, want one cgo_excluded and no not_called", outcome.Failed, outcome.Figures)
+	}
+}
