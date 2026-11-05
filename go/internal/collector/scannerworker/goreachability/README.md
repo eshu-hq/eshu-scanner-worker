@@ -82,8 +82,10 @@ Real output that shaped the code, recorded in
 [testdata/govulncheck](testdata/govulncheck/README.md):
 
 - A cgo dependency does not print anything about cgo. On eshu-hq/eshu the scan printed
-  only `undefined: tree_sitter.Node`, so a failed scan asks `go list` whether any file
-  the build excluded from a non-standard package imports `"C"`.
+  only `undefined: tree_sitter.Node`, so a failed scan asks `go list` for the files the
+  build excluded from non-standard packages. A file counts only if it imports `"C"` and
+  `go/build` accepts it with cgo on, so only cgo excluded it. `golang.org/x/sys/unix` ships
+  `//go:build ignore` files that import `"C"`, and those never name a failure.
 - A module with no Go files and a module whose only Go file imports `"C"` print the
   same line and exit 2. A scan that matched no packages reads the tree to tell them
   apart. A module with no Go files is a finished scan with no facts.

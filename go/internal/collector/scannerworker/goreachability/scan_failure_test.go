@@ -170,6 +170,12 @@ func TestNoPackagesIsThreeDifferentTrees(t *testing.T) {
 		"cgo only":     {map[string]string{"main.go": cgo}, warningCgoRequired},
 		"cgo nested":   {map[string]string{"pkg/c/main.go": cgo}, warningCgoRequired},
 		"constrained":  {map[string]string{"main.go": "//go:build plan9\n\npackage main\n"}, warningAnalysisFailed},
+		// Only cgo may earn the name: go/build must accept the file once cgo is on.
+		"cgo ignored":        {map[string]string{"main.go": "//go:build ignore\n\n" + cgo}, warningAnalysisFailed},
+		"cgo other os":       {map[string]string{"main.go": "//go:build plan9\n\n" + cgo}, warningAnalysisFailed},
+		"cgo os filename":    {map[string]string{"main_plan9.go": cgo}, warningAnalysisFailed},
+		"cgo tagged":         {map[string]string{"main.go": "//go:build cgo\n\n" + cgo}, warningCgoRequired},
+		"cgo beside ignored": {map[string]string{"a.go": "//go:build ignore\n\n" + cgo, "b.go": cgo}, warningCgoRequired},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -212,9 +218,12 @@ func TestTypeErrorFromACgoDependencyReadsAsCgoRequired(t *testing.T) {
 	for name, tc := range map[string]struct {
 		excluded, want string
 	}{
-		"cgo dependency":   {"package tree\n\nimport \"C\"\n", warningCgoRequired},
-		"windows only":     {"//go:build windows\n\npackage tree\n", warningAnalysisFailed},
-		"nothing excluded": {"", warningAnalysisFailed},
+		"cgo dependency":    {"package tree\n\nimport \"C\"\n", warningCgoRequired},
+		"cgo tagged":        {"//go:build cgo\n\npackage tree\n\nimport \"C\"\n", warningCgoRequired},
+		"ignore plus cgo":   {"//go:build ignore\n\npackage tree\n\nimport \"C\"\n", warningAnalysisFailed},
+		"other os plus cgo": {"//go:build plan9\n\npackage tree\n\nimport \"C\"\n", warningAnalysisFailed},
+		"windows only":      {"//go:build windows\n\npackage tree\n", warningAnalysisFailed},
+		"nothing excluded":  {"", warningAnalysisFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

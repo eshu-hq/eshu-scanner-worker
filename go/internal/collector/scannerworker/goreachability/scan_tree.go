@@ -6,11 +6,13 @@ package goreachability
 import (
 	"bytes"
 	"context"
+	"go/build"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -45,7 +47,7 @@ func goFilesIn(root string) int {
 			return nil
 		}
 		found = max(found, goFilesPresent)
-		if importsCgo(path) {
+		if needsCgo(path) {
 			found = goFilesNeedCgo
 			return filepath.SkipAll
 		}
@@ -83,7 +85,7 @@ func (s *ScanStage) graphNeedsCgo(ctx context.Context, dir string, env []string)
 		}
 		for name := range strings.SplitSeq(files, ",") {
 			path := filepath.Join(packageDir, name)
-			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && importsCgo(path) {
+			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && needsCgo(path) {
 				return true
 			}
 		}
@@ -103,6 +105,30 @@ func skipForPackages(root, path, name string) error {
 		return filepath.SkipDir
 	}
 	return nil
+}
+
+// needsCgo reports whether cgo is the only thing that kept a file out of the build: it
+// imports "C", and go/build accepts it once cgo is on. A `//go:build ignore` file or
+// another platform's file can import "C" too, and golang.org/x/sys/unix ships several,
+// so without this nearly any failed scan would read as cgo_required.
+func needsCgo(path string) bool {
+	if !importsCgo(path) {
+		return false
+	}
+	context := build.Default
+	context.GOOS, context.GOARCH, context.CgoEnabled = runtime.GOOS, runtime.GOARCH, true
+	context.OpenFile = func(path string) (io.ReadCloser, error) {
+		file, err := os.Open(path) // #nosec G304 -- a regular file the walk found in this claim's private checkout or module cache
+		if err != nil {
+			return nil, err
+		}
+		return struct {
+			io.Reader
+			io.Closer
+		}{io.LimitReader(file, goFileSniffBytes), file}, nil
+	}
+	match, err := context.MatchFile(filepath.Dir(path), filepath.Base(path))
+	return err == nil && match
 }
 
 // importsCgo reports whether a file's head imports "C".
