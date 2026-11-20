@@ -40,16 +40,16 @@ func symlinkRepo(t *testing.T) (string, string) {
 }
 
 // TestWithoutStageBAModuleResultIsNeverComplete pins the Stage A row of the flag
-// table: no govulncheck ran, so the result is partial, and it still attests deletion
-// because it is the full snapshot of one commit.
+// table: no govulncheck ran, so the result is partial and never attests deletion,
+// even with no warning to name.
 func TestWithoutStageBAModuleResultIsNeverComplete(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], nil))
 	c := result.Completion
-	if c == nil || !c.Partial || !c.TrustedDeletion || c.FailureClass != "" || c.WarningCount != 0 {
-		t.Fatalf("completion = %+v, want partial, attesting, no failure class, no warning", c)
+	if c == nil || !c.Partial || c.TrustedDeletion || c.FailureClass != "" || c.WarningCount != 0 {
+		t.Fatalf("completion = %+v, want partial without deletion, no failure class, no warning", c)
 	}
 	if c.Figures["modules_total"] != 1 || c.Figures["modules_analyzed"] != 0 || c.Figures["requirements_total"] != 1 || c.Figures["warnings_total"] != 0 {
 		t.Fatalf("figures = %v", c.Figures)
@@ -111,22 +111,22 @@ func TestStageExcludesToolchainUnsupportedModules(t *testing.T) {
 	if len(stage.input.Modules) != 1 || stage.input.Modules[0].RelativePath != "go.mod" {
 		t.Fatalf("stage modules = %+v", stage.input.Modules)
 	}
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion {
 		t.Fatalf("completion = %+v", c)
 	}
 }
 
-// TestStageFailureCommitsNamedAndSupersedes is the commit-or-nothing row: a module
-// whose stage failed gets a warning and no reachability, the result is partial, and
-// it still attests deletion, so the module's old verdict leaves truth instead of
-// being carried forward.
-func TestStageFailureCommitsNamedAndSupersedes(t *testing.T) {
+// TestStageFailureCommitsNamedWithoutAttestingDeletion is the commit-or-nothing
+// row: a module whose stage failed gets a warning and no reachability, the result
+// is partial, and it never attests deletion, so the module's old verdict stays
+// until a complete generation retracts it.
+func TestStageFailureCommitsNamedWithoutAttestingDeletion(t *testing.T) {
 	t.Parallel()
 
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": goModV1})
 	stage := &recordingStage{t: t, outcome: StageOutcome{Failed: []ModuleFailure{{RelativePath: "go.mod", Reason: "analysis_failed", Class: scannerworker.FailureClassAnalysisFailed}}}}
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 		t.Fatalf("completion = %+v", c)
 	}
 	if got := warningsOf(result.Output); !slices.Equal(got, []string{"analysis_failed go.mod"}) {
@@ -172,7 +172,7 @@ func TestSelfCheckCountsUnreadModules(t *testing.T) {
 	})
 	stage := &recordingStage{t: t, outcome: StageOutcome{ModulesAnalyzed: 1}}
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 3 {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 3 {
 		t.Fatalf("completion = %+v", c)
 	}
 }

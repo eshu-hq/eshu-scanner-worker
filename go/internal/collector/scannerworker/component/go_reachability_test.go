@@ -161,7 +161,7 @@ func goReachabilityValidator(t *testing.T) sdkcollector.Validator {
 
 // TestGoReachabilityRunnerEmitsAcceptedPartialResult is the end-to-end Stage A
 // path through the stdio runner: the host validator accepts it, the facts match
-// the published schema, the state is partial and attests deletion, the hint is
+// the published schema, the state is partial without deletion, the hint is
 // the tuple hash, and stderr holds one line of counts with nothing identifying.
 func TestGoReachabilityRunnerEmitsAcceptedPartialResult(t *testing.T) {
 	t.Parallel()
@@ -178,8 +178,8 @@ func TestGoReachabilityRunnerEmitsAcceptedPartialResult(t *testing.T) {
 	if page.State != sdkcollector.ResultPartial || len(page.Facts) != 1 {
 		t.Fatalf("state = %q facts = %d, want partial with one fact", page.State, len(page.Facts))
 	}
-	if !page.Generation.TrustedDeletion {
-		t.Fatal("TrustedDeletion = false, want true: every committed generation is a full snapshot")
+	if page.Generation.TrustedDeletion {
+		t.Fatal("TrustedDeletion = true, want false: a partial generation never attests deletion")
 	}
 	if !strings.HasPrefix(page.Generation.FreshnessHint, "sha256:") {
 		t.Fatalf("FreshnessHint = %q", page.Generation.FreshnessHint)

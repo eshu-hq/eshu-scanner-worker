@@ -286,10 +286,11 @@ func (a *Analyzer) readModules(ctx context.Context, git gitRunner, dir string, e
 	return read, nil
 }
 
-// finish assembles the output and decides the flags. Every committed generation is
-// the full snapshot of one commit: a unit the component could not observe is named by
-// a warning in the same generation, so the omission is never silent and the component
-// attests TrustedDeletion on every commit. A module with an unusable go.mod, or whose
+// finish assembles the output and decides the flags. A complete generation is the
+// full snapshot of one commit and attests TrustedDeletion; a partial generation
+// never does, because its warnings are advisory and no deletion path joins them,
+// so the store's successor guard re-arms on the missing attestation. A module with
+// an unusable go.mod, or whose
 // stage run failed, leaves its earlier evidence and reachability behind with the prior
 // generation and reads as missing evidence, because they described another commit or
 // database. Partial is telemetry and readiness only; it never decides supersession.
@@ -345,7 +346,7 @@ func (a *Analyzer) finish(emit emitContext, modulesTotal int, read moduleRead, o
 			WarningCount:    len(warnings),
 			FailureClass:    failureClass,
 			FreshnessHint:   freshnessHint(inputs, partialOutcome(partial, warnings)),
-			TrustedDeletion: true,
+			TrustedDeletion: !partial,
 			Figures:         figures,
 			Labels:          outcome.Labels,
 		},

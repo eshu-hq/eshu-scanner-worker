@@ -15,11 +15,11 @@ import (
 	"github.com/eshu-hq/eshu-scanner-worker/go/internal/facts"
 )
 
-// TestGoReachabilityLargeDependencyCutAttestsDeletion is the case that would hit the
-// store's shrink guard if the attestation depended on the result: twenty requires cut
-// to three at the next commit. Both generations attest, so core's trusted arm stores
-// the successor and the seventeen requires leave truth.
-func TestGoReachabilityLargeDependencyCutAttestsDeletion(t *testing.T) {
+// TestGoReachabilityLargeDependencyCutRefusesDeletion is the fail-closed case:
+// twenty requires cut to three at the next commit would hit the store's shrink
+// guard. Neither partial generation attests, so the successor is refused and the
+// seventeen removed requires stay until a complete generation retracts them.
+func TestGoReachabilityLargeDependencyCutRefusesDeletion(t *testing.T) {
 	t.Parallel()
 
 	requires := func(count int) string {
@@ -33,7 +33,7 @@ func TestGoReachabilityLargeDependencyCutAttestsDeletion(t *testing.T) {
 	for _, count := range []int{20, 3} {
 		cloneURL, sha := goReachabilityRepo(t, goModFile(requires(count)))
 		page, _ := runGoReachability(t, goReachabilityConfig(cloneURL, sha, goReachabilityTokenStanza()), nil)
-		if page.State != sdkcollector.ResultPartial || !page.Generation.TrustedDeletion || len(page.Facts) != count {
+		if page.State != sdkcollector.ResultPartial || page.Generation.TrustedDeletion || len(page.Facts) != count {
 			t.Fatalf("requires=%d: state = %q trusted = %t facts = %d", count, page.State, page.Generation.TrustedDeletion, len(page.Facts))
 		}
 	}
