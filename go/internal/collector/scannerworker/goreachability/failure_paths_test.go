@@ -184,7 +184,7 @@ func TestAStageWithNoEligibleModuleIsNotCalled(t *testing.T) {
 	url, shas := fixtureRepo(t, map[string]string{"go.mod": "module m.test/a\n\ngo 1.99\n\nrequire m.test/b v1.0.0\n"})
 	stage := &recordingStage{t: t, err: errors.New("stage must not run")}
 	result := analyze(t, fixtureAnalyzer(t, url, shas[0], func(c *Config) { c.Options.Stage = stage }))
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion {
 		t.Fatalf("completion = %+v", c)
 	}
 }

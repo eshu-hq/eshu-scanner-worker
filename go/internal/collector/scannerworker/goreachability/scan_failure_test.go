@@ -340,8 +340,8 @@ func TestLeaseEndsAScanBeforeItsBudget(t *testing.T) {
 }
 
 // TestModuleBudgetScansTheFirstAndWarnsForTheRepository proves the cap: exactly
-// the budget runs, and one whole-repository warning stands for the rest, so the
-// warning count stays bounded.
+// the budget runs, one whole-repository warning stands for the rest so the
+// warning count stays bounded, and the modules_skipped figure counts the rest.
 func TestModuleBudgetScansTheFirstAndWarnsForTheRepository(t *testing.T) {
 	t.Parallel()
 
@@ -363,5 +363,8 @@ func TestModuleBudgetScansTheFirstAndWarnsForTheRepository(t *testing.T) {
 	}
 	if failed := outcome.Failed[0]; failed.Reason != warningModuleBudgetExceeded || failed.RelativePath != "" {
 		t.Fatalf("failed = %+v, want a whole-repository warning", failed)
+	}
+	if got := outcome.Figures["modules_skipped"]; got != 3 {
+		t.Fatalf("modules_skipped = %d, want 3 so the skipped modules are counted", got)
 	}
 }

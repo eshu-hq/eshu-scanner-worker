@@ -161,8 +161,8 @@ func TestStageBFailedModuleIsPartialWithNoReachability(t *testing.T) {
 	cloneURL, sha := goReachabilityRepo(t, goModFile(stageBGoMod))
 	toolchain := seededScanner(t, `echo "package x: build constraints exclude all Go files in /x" >&2; exit 1`)
 	page, stderr := runStageB(t, toolchain, goReachabilityConfig(cloneURL, sha, goReachabilityTokenStanza()), noOperatorEnv)
-	if page.State != sdkcollector.ResultPartial || !page.Generation.TrustedDeletion {
-		t.Fatalf("state = %q trusted = %v", page.State, page.Generation.TrustedDeletion)
+	if page.State != sdkcollector.ResultPartial || page.Generation.TrustedDeletion {
+		t.Fatalf("state = %q trusted = %v, want partial without deletion", page.State, page.Generation.TrustedDeletion)
 	}
 	if _, err := goReachabilityValidator(t).ValidateResult(page); err != nil {
 		t.Fatalf("ValidateResult() error = %v", err)

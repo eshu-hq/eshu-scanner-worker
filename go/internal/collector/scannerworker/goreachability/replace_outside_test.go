@@ -54,7 +54,7 @@ func TestReplaceLeavingTheCheckoutIsRefused(t *testing.T) {
 			if !slices.Equal(warnings, []string{"replace_outside_checkout " + tc.path}) {
 				t.Fatalf("warnings = %v", warnings)
 			}
-			if c := result.Completion; len(stage.input.Modules) != 0 || !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+			if c := result.Completion; len(stage.input.Modules) != 0 || !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 				t.Fatalf("modules = %+v completion = %+v", stage.input.Modules, c)
 			}
 		})

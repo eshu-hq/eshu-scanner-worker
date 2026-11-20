@@ -119,6 +119,7 @@ func (s *ScanStage) Run(ctx context.Context, input StageInput) (StageOutcome, er
 		Figures: map[string]int64{
 			"findings_symbol": 0, "findings_not_called": 0, "findings_stdlib_dropped": 0,
 			"findings_not_called_withheld": 0, "modules_cgo_excluded": 0, "modcache_pruned": 0,
+			"modules_skipped": 0,
 		},
 		Labels: map[string]string{
 			"scanner_version": GovulncheckVersion, "toolchain": PinnedToolchainVersion(),
@@ -131,6 +132,7 @@ func (s *ScanStage) Run(ctx context.Context, input StageInput) (StageOutcome, er
 	modules := input.Modules
 	if len(modules) > s.config.MaxModules {
 		outcome.ModulesSkipped = len(modules) - s.config.MaxModules
+		outcome.Figures["modules_skipped"] = int64(outcome.ModulesSkipped)
 		modules = modules[:s.config.MaxModules]
 		outcome.Failed = append(outcome.Failed, ModuleFailure{Reason: warningModuleBudgetExceeded, Class: scannerworker.FailureClassAnalysisFailed})
 	}

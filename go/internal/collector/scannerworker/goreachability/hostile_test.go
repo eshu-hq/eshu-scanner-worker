@@ -209,7 +209,7 @@ func TestNonRegularGoModIsPartialAndNamed(t *testing.T) {
 				t.Fatalf("warnings = %v, want the typed warning and never no_go_modules", got)
 			}
 			c := result.Completion
-			if !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+			if !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 				t.Fatalf("completion = %+v", c)
 			}
 			if got := evidenceOf(result.Output); len(got) != 0 {
@@ -246,7 +246,7 @@ func TestHostileStringsNeverReachFacts(t *testing.T) {
 				t.Fatalf("warnings = %v", got)
 			}
 			c := result.Completion
-			if !c.Partial || !c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
+			if !c.Partial || c.TrustedDeletion || c.FailureClass != scannerworker.FailureClassAnalysisFailed {
 				t.Fatalf("completion = %+v", c)
 			}
 			if len(stage.input.Modules) != 0 {
@@ -342,7 +342,7 @@ func TestInvalidUTF8DirectoriesDoNotCollide(t *testing.T) {
 		}
 		keys[fact.StableFactKey] = true
 	}
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 4 {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 4 {
 		t.Fatalf("completion = %+v", c)
 	}
 }
@@ -407,13 +407,13 @@ func TestDuplicateTreeEntriesCannotShareAKey(t *testing.T) {
 	if got := evidenceOf(result.Output); len(got) != 0 {
 		t.Fatalf("evidence = %v", got)
 	}
-	if c := result.Completion; !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 1 {
+	if c := result.Completion; !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 1 {
 		t.Fatalf("completion = %+v", c)
 	}
 }
 
 // TestInvalidPathsAreCountedInTheFigures proves the invalid-path count reaches
-// the completion figures, so the attestation cannot silently drop the warnings.
+// the completion figures, so the counts cannot silently drop the warnings.
 func TestInvalidPathsAreCountedInTheFigures(t *testing.T) {
 	t.Parallel()
 

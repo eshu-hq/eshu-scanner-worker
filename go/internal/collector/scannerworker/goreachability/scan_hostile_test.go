@@ -103,7 +103,7 @@ func TestLinkedGoSumCannotWriteOutsideItsCheckout(t *testing.T) {
 				t.Fatalf("evidence = %v, want the go.mod evidence kept", got)
 			}
 			c := result.Completion
-			if !c.Partial || !c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.Figures["modules_analyzed"] != 0 {
+			if !c.Partial || c.TrustedDeletion || c.Figures["modules_total"] != 1 || c.Figures["modules_analyzed"] != 0 {
 				t.Fatalf("completion = %+v", c)
 			}
 		})

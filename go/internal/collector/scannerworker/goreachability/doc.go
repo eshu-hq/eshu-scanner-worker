@@ -49,13 +49,12 @@
 // kernel drops at process death, so a later claim sweeps what a killed one left and
 // never a live sibling.
 //
-// Every committed generation is the full snapshot of one commit and attests
-// deletion. A unit it could not observe is named by a scanner_worker.warning in the
-// same generation, so its earlier evidence leaves truth and reads as missing evidence
-// instead of surviving as stale truth. Partial is telemetry and readiness only. A
-// failure that cannot meet this rule commits nothing: a checkout, auth, or budget
-// failure, a retryable module class, and a module count that does not add up
-// (self_check_failed).
+// A complete generation is the full snapshot of one commit and attests deletion.
+// A partial generation never does: its warnings are advisory and no deletion path
+// joins them, so the store's successor guard re-arms and earlier evidence is kept
+// until a complete generation retracts it. A failure that cannot meet this rule
+// commits nothing: a checkout, auth, or budget failure, a retryable module class,
+// and a module count that does not add up (self_check_failed).
 //
 // Errors carry bounded classes and reasons, never a path, URL, or repository value.
 // Warning facts name a go.mod by relative_path, and never carry its text. Budgets are
