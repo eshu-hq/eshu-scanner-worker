@@ -81,10 +81,14 @@ unpacking.
   contract. These programs speak `collector-sdk/v1alpha3`.
 - [eshu-extension-host](https://github.com/eshu-hq/eshu-extension-host):
   the standalone supervisor for component collectors like these.
+- [eshu-deploy](https://github.com/eshu-hq/eshu-deploy): Helm charts and
+  Compose files for running the stack.
+- [Collector and Reducer Readiness](https://github.com/eshu-hq/eshu/blob/main/docs/public/reference/collector-reducer-readiness.md) and the 31-repo
+  [Repository Map](https://github.com/eshu-hq/eshu/blob/main/REPOSITORIES.md).
 
 ## Development
 
-Go `1.26.10` (pinned in `go.mod`). Run `make ci` for the same lint,
+Go `1.26.11` (pinned in `go.mod`). Run `make ci` for the same lint,
 test, and race lanes CI runs.
 
 ## Contributing, security, license
